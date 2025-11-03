@@ -1,0 +1,74 @@
+[INFO] 2025-11-03 16:52:11 - Launching OCR AutoClicker GUI
+[DEBUG] 2025-11-03 16:52:20 - Starting with interval 1.0-2.0
+[INFO] 2025-11-03 16:52:20 - Starting autoclicker thread
+[DEBUG] 2025-11-03 16:52:21 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:21 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:22 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:22 - No target text found
+[DEBUG] 2025-11-03 16:52:22 - Sleeping for 1.58 seconds
+[DEBUG] 2025-11-03 16:52:24 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:24 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:25 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:25 - No target text found
+[DEBUG] 2025-11-03 16:52:25 - Sleeping for 1.20 seconds
+[DEBUG] 2025-11-03 16:52:26 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:26 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:27 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:27 - No target text found
+[DEBUG] 2025-11-03 16:52:27 - Sleeping for 1.26 seconds
+[DEBUG] 2025-11-03 16:52:29 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:29 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:30 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:30 - No target text found
+[DEBUG] 2025-11-03 16:52:30 - Sleeping for 1.59 seconds
+[DEBUG] 2025-11-03 16:52:32 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:32 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:33 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:33 - No target text found
+[DEBUG] 2025-11-03 16:52:33 - Sleeping for 1.10 seconds
+[DEBUG] 2025-11-03 16:52:34 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:34 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:35 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:35 - No target text found
+[DEBUG] 2025-11-03 16:52:35 - Sleeping for 1.46 seconds
+[DEBUG] 2025-11-03 16:52:37 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:37 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:38 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:38 - No target text found
+[DEBUG] 2025-11-03 16:52:38 - Sleeping for 1.10 seconds
+[DEBUG] 2025-11-03 16:52:39 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:39 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:40 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:40 - No target text found
+[DEBUG] 2025-11-03 16:52:40 - Sleeping for 1.24 seconds
+[DEBUG] 2025-11-03 16:52:42 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:42 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:43 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:43 - No target text found
+[DEBUG] 2025-11-03 16:52:43 - Sleeping for 2.00 seconds
+[DEBUG] 2025-11-03 16:52:45 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:45 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:46 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:46 - No target text found
+[DEBUG] 2025-11-03 16:52:46 - Sleeping for 1.70 seconds
+[DEBUG] 2025-11-03 16:52:48 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:48 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:49 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:49 - No target text found
+[DEBUG] 2025-11-03 16:52:49 - Sleeping for 1.73 seconds
+[DEBUG] 2025-11-03 16:52:51 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:51 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:52 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:52 - No target text found
+[DEBUG] 2025-11-03 16:52:52 - Sleeping for 1.12 seconds
+[DEBUG] 2025-11-03 16:52:53 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:53 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:54 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:54 - No target text found
+[DEBUG] 2025-11-03 16:52:54 - Sleeping for 1.41 seconds
+[DEBUG] 2025-11-03 16:52:56 - Screenshot captured (region: None)
+[DEBUG] 2025-11-03 16:52:56 - Starting OCR scan...
+[WARNING] 2025-11-03 16:52:57 - OCR did not find 'SHAKE'
+[DEBUG] 2025-11-03 16:52:57 - No target text found
+[DEBUG] 2025-11-03 16:52:57 - Sleeping for 1.65 seconds
+[INFO] 2025-11-03 16:52:58 - Stopping autoclicker thread
