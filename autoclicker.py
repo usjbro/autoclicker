@@ -18,14 +18,14 @@ class AutoClicker:
         pyautogui.FAILSAFE = True  # Move mouse to corner to stop
         pyautogui.PAUSE = 0.1  # Add small delay between actions
         
-    def find_white_text_regions(self, screenshot):
+    def find_white_text_regions(self, screenshot, threshold=200):
         """Find regions with white text (SHAKE) using color detection"""
         # Convert screenshot to numpy array
         img_array = np.array(screenshot)
         
         # Define white color threshold (RGB values close to white)
         # White text typically has high R, G, B values
-        lower_white = np.array([200, 200, 200])  # Minimum RGB for "white"
+        lower_white = np.array([threshold, threshold, threshold])  # Minimum RGB for "white"
         upper_white = np.array([255, 255, 255])  # Maximum RGB
         
         # Create mask for white pixels
@@ -34,6 +34,8 @@ class AutoClicker:
         # Find coordinates of white pixels
         white_coords = np.argwhere(mask)
         
+        print(f"Found {len(white_coords)} white pixels (threshold: {threshold})")
+        
         if len(white_coords) == 0:
             return None
         
@@ -41,14 +43,18 @@ class AutoClicker:
         # Group nearby white pixels together
         clusters = self.find_clusters(white_coords)
         
+        print(f"Found {len(clusters)} clusters")
+        
         # Return the largest cluster (most likely to be the SHAKE text)
         if clusters:
             largest_cluster = max(clusters, key=lambda c: len(c))
+            print(f"Largest cluster has {len(largest_cluster)} pixels")
             # Calculate center of the cluster
             center_y = int(np.mean([coord[0] for coord in largest_cluster]))
             center_x = int(np.mean([coord[1] for coord in largest_cluster]))
             return (center_x, center_y)
         
+        print("No valid clusters found")
         return None
     
     def find_clusters(self, coords, max_distance=50):
@@ -85,37 +91,45 @@ class AutoClicker:
         
         return clusters
         
-    def start_clicking(self, min_interval, max_interval, search_region=None):
+    def start_clicking(self, min_interval, max_interval, search_region=None, threshold=200):
         """Main clicking loop with color-based detection"""
         while not self.stop_event.is_set():
             if self.running:
                 try:
+                    print("\n--- New search attempt ---")
                     # Take screenshot of specified region or full screen
                     if search_region:
+                        print(f"Searching in region: {search_region}")
                         screenshot = pyautogui.screenshot(region=search_region)
                         offset_x, offset_y = search_region[0], search_region[1]
                     else:
+                        print("Searching full screen")
                         screenshot = pyautogui.screenshot()
                         offset_x, offset_y = 0, 0
                     
                     # Find white text regions
-                    location = self.find_white_text_regions(screenshot)
+                    location = self.find_white_text_regions(screenshot, threshold)
                     
                     if location:
                         # Adjust coordinates if using region
                         click_x = location[0] + offset_x
                         click_y = location[1] + offset_y
                         
-                        print(f"Found white text cluster at ({click_x}, {click_y})")
+                        print(f"✓ Found white text cluster at ({click_x}, {click_y})")
+                        print(f"Clicking...")
                         pyautogui.click(click_x, click_y)
+                        print("Click complete!")
                     else:
-                        print("No white text found")
+                        print("✗ No white text found")
                         
                 except Exception as e:
-                    print(f"Error during detection: {e}")
+                    print(f"❌ Error during detection: {e}")
+                    import traceback
+                    traceback.print_exc()
                 
                 # Random delay between searches
                 delay = random.uniform(min_interval, max_interval)
+                print(f"Waiting {delay:.2f} seconds...")
                 time.sleep(delay)
                 
     def toggle(self):
@@ -226,25 +240,38 @@ class AutoClickerGUI:
             try:
                 min_interval = float(self.min_interval.get())
                 max_interval = float(self.max_interval.get())
+                threshold = int(self.threshold.get())
                 
                 if min_interval <= 0 or max_interval <= 0:
                     raise ValueError("Intervals must be positive")
                 
+                if threshold < 0 or threshold > 255:
+                    raise ValueError("Threshold must be between 0-255")
+                
+                print(f"\n{'='*50}")
+                print(f"Starting autoclicker with:")
+                print(f"  Interval: {min_interval}-{max_interval} seconds")
+                print(f"  White threshold: {threshold}")
+                print(f"  Region: {self.search_region if self.search_region else 'Full screen'}")
+                print(f"{'='*50}\n")
+                
                 self.clicker.stop_event.clear()
                 self.clicker.click_thread = Thread(
                     target=self.clicker.start_clicking,
-                    args=(min_interval, max_interval, self.search_region)
+                    args=(min_interval, max_interval, self.search_region, threshold)
                 )
                 self.clicker.click_thread.start()
                 self.clicker.toggle()
                 self.status_label.config(text="Status: Running")
                 self.toggle_button.config(text="Stop (F6)")
             except ValueError as e:
-                self.status_label.config(text=f"Error: Invalid interval values")
+                self.status_label.config(text=f"Error: {e}")
+                print(f"Error: {e}")
         else:
             self.clicker.toggle()
             self.status_label.config(text="Status: Stopped")
             self.toggle_button.config(text="Start (F6)")
+            print("\nAutoclicker stopped\n")
             
     def stop_application(self):
         self.clicker.stop()
