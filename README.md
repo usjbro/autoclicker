@@ -1,47 +1,20 @@
-# Legitimate AutoClicker
+# OCR AutoClicker
 
-A simple, customizable autoclicker with GUI interface for legitimate automation purposes.
+Modular autoclicker using OCR to detect "SHAKE" button.
 
-## Features
-- Configurable click intervals
-- Random timing variation for natural behavior
-- Hotkey controls (F6 to start/stop, ESC to exit)
-- User-friendly GUI interface
-- Failsafe (move mouse to screen corner to stop)
+## Structure
+- `main.py`: Entry point
+- `gui.py`: GUI logic
+- `autoclicker.py`: Clicking logic
+- `ocr_detector.py`: OCR detection
+- `click_session.py`: Session settings
 
-## Installation
-
-1. Install Python 3.8 or higher
-2. Install requirements:
-```bash
-pip install -r requirements.txt
-```
+## Setup
+1. Install Python 3.8+
+2. `brew install tesseract` (macOS)
+3. `pip install -r requirements.txt`
 
 ## Usage
-
-1. Run the application:
+Run with:
 ```bash
-python autoclicker.py
-```
-
-2. Configure click intervals:
-   - Min Interval: Minimum time between clicks (seconds)
-   - Max Interval: Maximum time between clicks (seconds)
-
-3. Controls:
-   - Click "Start" or press F6 to start/stop clicking
-   - Click "Exit" or press ESC to close the application
-   - Move mouse to any screen corner to activate failsafe stop
-
-## Safety Features
-- Built-in failsafe (move mouse to corner)
-- Configurable delays to prevent system stress
-- Easy to stop (multiple methods)
-
-## Legitimate Use Only
-This tool is intended for legitimate automation purposes only, such as:
-- Testing UI interactions
-- Accessibility assistance
-- Local task automation
-
-Do not use this tool for any unauthorized or malicious purposes.
+python main.py
