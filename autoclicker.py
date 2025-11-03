@@ -7,6 +7,8 @@ import time
 from threading import Thread, Event
 from PIL import Image
 import numpy as np
+import subprocess
+import re
 
 class AutoClicker:
     def __init__(self):
@@ -151,15 +153,28 @@ class AutoClickerGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Color-Based AutoClicker")
-        self.root.geometry("350x300")
+        self.root.geometry("400x400")
         
         self.clicker = AutoClicker()
         self.search_region = None
+        self.app_name = None
         
         self.setup_gui()
         self.setup_hotkeys()
         
     def setup_gui(self):
+        # App selection
+        ttk.Label(self.root, text="Target Application (optional)").pack(pady=5)
+        
+        app_frame = ttk.Frame(self.root)
+        app_frame.pack()
+        
+        self.app_entry = ttk.Entry(app_frame, width=25)
+        self.app_entry.insert(0, "")
+        self.app_entry.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(app_frame, text="Find Window", command=self.find_app_window).pack(side=tk.LEFT)
+        
         # Interval settings
         ttk.Label(self.root, text="Click Interval (seconds)").pack(pady=5)
         
@@ -177,13 +192,13 @@ class AutoClickerGUI:
         self.max_interval.pack(side=tk.LEFT)
         
         # White threshold settings
-        ttk.Label(self.root, text="White Threshold (200-255)").pack(pady=5)
+        ttk.Label(self.root, text="White Threshold (0-255)").pack(pady=5)
         self.threshold = ttk.Entry(self.root)
         self.threshold.insert(0, "200")
         self.threshold.pack()
         
         # Search region info
-        self.region_label = ttk.Label(self.root, text="Search Region: Full Screen")
+        self.region_label = ttk.Label(self.root, text="Search Region: Full Screen", wraplength=350)
         self.region_label.pack(pady=5)
         
         # Status label
@@ -191,18 +206,70 @@ class AutoClickerGUI:
         self.status_label.pack(pady=5)
         
         # Control buttons
-        self.toggle_button = ttk.Button(self.root, text="Start (F6)", command=self.toggle_clicking)
+        self.toggle_button = ttk.Button(self.root, text="Start (Z)", command=self.toggle_clicking)
         self.toggle_button.pack(pady=5)
         
-        ttk.Button(self.root, text="Set Search Region (F7)", command=self.set_region).pack(pady=2)
+        ttk.Button(self.root, text="Set Manual Region (F7)", command=self.set_region).pack(pady=2)
         ttk.Button(self.root, text="Reset to Full Screen", command=self.reset_region).pack(pady=2)
         ttk.Button(self.root, text="Exit (ESC)", command=self.stop_application).pack(pady=5)
         
+    def find_app_window(self):
+        """Find window bounds for the specified application (macOS)"""
+        app_name = self.app_entry.get().strip()
+        if not app_name:
+            self.status_label.config(text="Please enter an app name")
+            return
+        
+        try:
+            # Use AppleScript to get window bounds on macOS
+            script = f'''
+            tell application "System Events"
+                tell process "{app_name}"
+                    get position of window 1
+                    get size of window 1
+                end tell
+            end tell
+            '''
+            
+            result = subprocess.run(['osascript', '-e', script], 
+                                  capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                # Parse the output
+                output = result.stdout.strip()
+                numbers = re.findall(r'\d+', output)
+                
+                if len(numbers) >= 4:
+                    x, y, width, height = map(int, numbers[:4])
+                    self.search_region = (x, y, width, height)
+                    self.app_name = app_name
+                    self.region_label.config(text=f"App: {app_name}\nRegion: ({x},{y}) {width}x{height}")
+                    self.status_label.config(text=f"Found {app_name} window!")
+                else:
+                    self.status_label.config(text="Could not parse window bounds")
+            else:
+                error_msg = result.stderr.strip()
+                if "Application isn't running" in error_msg or "process" in error_msg:
+                    self.status_label.config(text=f"{app_name} not running")
+                else:
+                    self.status_label.config(text="Could not find app window")
+                    
+        except subprocess.TimeoutExpired:
+            self.status_label.config(text="Search timed out")
+        except Exception as e:
+            self.status_label.config(text=f"Error: {str(e)[:30]}")
+            print(f"Error finding window: {e}")
+    
     def setup_hotkeys(self):
         def on_press(key):
             try:
-                if key == keyboard.Key.f6:
-                    self.toggle_clicking()
+                # Check for 'z' and 'x' keys
+                if hasattr(key, 'char'):
+                    if key.char == 'z':
+                        self.toggle_clicking()
+                    elif key.char == 'x':
+                        self.toggle_clicking()
+                # Keep F7 and ESC for other functions
                 elif key == keyboard.Key.f7:
                     self.set_region()
                 elif key == keyboard.Key.esc:
@@ -234,12 +301,13 @@ class AutoClickerGUI:
         height = abs(y2 - y1)
         
         self.search_region = (x, y, width, height)
-        self.region_label.config(text=f"Region: ({x},{y}) {width}x{height}")
+        self.region_label.config(text=f"Manual Region: ({x},{y}) {width}x{height}")
         self.status_label.config(text="Status: Stopped")
     
     def reset_region(self):
         """Reset to full screen search"""
         self.search_region = None
+        self.app_name = None
         self.region_label.config(text="Search Region: Full Screen")
         
     def toggle_clicking(self):
@@ -260,6 +328,8 @@ class AutoClickerGUI:
                 print(f"  Interval: {min_interval}-{max_interval} seconds")
                 print(f"  White threshold: {threshold}")
                 print(f"  Region: {self.search_region if self.search_region else 'Full screen'}")
+                if self.app_name:
+                    print(f"  Target App: {self.app_name}")
                 print(f"{'='*50}\n")
                 
                 self.clicker.stop_event.clear()
@@ -269,15 +339,15 @@ class AutoClickerGUI:
                 )
                 self.clicker.click_thread.start()
                 self.clicker.toggle()
-                self.status_label.config(text="Status: Running")
-                self.toggle_button.config(text="Stop (F6)")
+                self.status_label.config(text="Status: Running (Press X to stop)")
+                self.toggle_button.config(text="Stop (X)")
             except ValueError as e:
                 self.status_label.config(text=f"Error: {e}")
                 print(f"Error: {e}")
         else:
             self.clicker.toggle()
             self.status_label.config(text="Status: Stopped")
-            self.toggle_button.config(text="Start (F6)")
+            self.toggle_button.config(text="Start (Z)")
             print("\nAutoclicker stopped\n")
             
     def stop_application(self):
