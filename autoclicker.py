@@ -139,7 +139,16 @@ class AutoClicker:
                 # Random delay between searches
                 delay = random.uniform(min_interval, max_interval)
                 print(f"Waiting {delay:.2f} seconds...")
-                time.sleep(delay)
+                
+                # Sleep in small increments to check stop_event more frequently
+                elapsed = 0
+                sleep_increment = 0.1
+                while elapsed < delay and not self.stop_event.is_set() and self.running:
+                    time.sleep(sleep_increment)
+                    elapsed += sleep_increment
+            else:
+                # If paused, just wait a bit before checking again
+                time.sleep(0.1)
                 
     def toggle(self):
         self.running = not self.running
@@ -227,12 +236,15 @@ class AutoClickerGUI:
                 app_names_to_try = ["Roblox", "RobloxPlayer"]
             
             for try_name in app_names_to_try:
+                print(f"Trying to find window for: {try_name}")
+                
                 # Use AppleScript to get window bounds on macOS
                 script = f'''
                 tell application "System Events"
                     tell process "{try_name}"
-                        get position of window 1
-                        get size of window 1
+                        set winPos to position of window 1
+                        set winSize to size of window 1
+                        return {{item 1 of winPos, item 2 of winPos, item 1 of winSize, item 2 of winSize}}
                     end tell
                 end tell
                 '''
@@ -240,19 +252,35 @@ class AutoClickerGUI:
                 result = subprocess.run(['osascript', '-e', script], 
                                       capture_output=True, text=True, timeout=5)
                 
+                print(f"AppleScript output: {result.stdout}")
+                print(f"AppleScript error: {result.stderr}")
+                
                 if result.returncode == 0:
-                    # Parse the output
+                    # Parse the output - format is: "x, y, width, height"
                     output = result.stdout.strip()
-                    numbers = re.findall(r'\d+', output)
+                    # Remove any non-numeric characters except commas and spaces
+                    cleaned = re.sub(r'[^\d,\s]', '', output)
+                    numbers = [int(x.strip()) for x in cleaned.split(',') if x.strip()]
+                    
+                    print(f"Parsed numbers: {numbers}")
                     
                     if len(numbers) >= 4:
-                        x, y, width, height = map(int, numbers[:4])
-                        self.search_region = (x, y, width, height)
-                        self.app_name = try_name
-                        self.region_label.config(text=f"App: {try_name}\nRegion: ({x},{y}) {width}x{height}")
-                        self.status_label.config(text=f"Found {try_name} window!")
-                        return
+                        x, y, width, height = numbers[:4]
+                        
+                        # Validate the region
+                        if width > 0 and height > 0:
+                            self.search_region = (x, y, width, height)
+                            self.app_name = try_name
+                            self.region_label.config(text=f"App: {try_name}\nRegion: ({x},{y}) {width}x{height}")
+                            self.status_label.config(text=f"Found {try_name} window!")
+                            print(f"Successfully set region: {self.search_region}")
+                            return
+                        else:
+                            print(f"Invalid dimensions: {width}x{height}")
+                            self.status_label.config(text="Invalid window dimensions")
+                            return
                     else:
+                        print(f"Not enough numbers parsed: {numbers}")
                         self.status_label.config(text="Could not parse window bounds")
                         return
             
@@ -264,6 +292,8 @@ class AutoClickerGUI:
         except Exception as e:
             self.status_label.config(text=f"Error: {str(e)[:30]}")
             print(f"Error finding window: {e}")
+            import traceback
+            traceback.print_exc()
     
     def setup_hotkeys(self):
         def on_press(key):
