@@ -23,6 +23,10 @@ class AutoClicker:
         # Convert screenshot to numpy array
         img_array = np.array(screenshot)
         
+        # Handle RGBA images (with alpha channel) by converting to RGB
+        if img_array.shape[2] == 4:
+            img_array = img_array[:, :, :3]  # Keep only RGB, drop alpha
+        
         # Define white color threshold (RGB values close to white)
         # White text typically has high R, G, B values
         lower_white = np.array([threshold, threshold, threshold])  # Minimum RGB for "white"
