@@ -120,8 +120,11 @@ class AutoClicker:
                         click_y = location[1] + offset_y
                         
                         print(f"✓ Found white text cluster at ({click_x}, {click_y})")
-                        print(f"Clicking...")
-                        pyautogui.click(click_x, click_y)
+                        print(f"Moving cursor and clicking...")
+                        # Move cursor to the location with a smooth animation
+                        pyautogui.moveTo(click_x, click_y, duration=0.2)
+                        # Click at the current position
+                        pyautogui.click()
                         print("Click complete!")
                     else:
                         print("✗ No white text found")
