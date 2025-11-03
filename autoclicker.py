@@ -221,38 +221,43 @@ class AutoClickerGUI:
             return
         
         try:
-            # Use AppleScript to get window bounds on macOS
-            script = f'''
-            tell application "System Events"
-                tell process "{app_name}"
-                    get position of window 1
-                    get size of window 1
+            # Special handling for Roblox - try both "Roblox" and "RobloxPlayer"
+            app_names_to_try = [app_name]
+            if app_name.lower() == "roblox":
+                app_names_to_try = ["Roblox", "RobloxPlayer"]
+            
+            for try_name in app_names_to_try:
+                # Use AppleScript to get window bounds on macOS
+                script = f'''
+                tell application "System Events"
+                    tell process "{try_name}"
+                        get position of window 1
+                        get size of window 1
+                    end tell
                 end tell
-            end tell
-            '''
-            
-            result = subprocess.run(['osascript', '-e', script], 
-                                  capture_output=True, text=True, timeout=5)
-            
-            if result.returncode == 0:
-                # Parse the output
-                output = result.stdout.strip()
-                numbers = re.findall(r'\d+', output)
+                '''
                 
-                if len(numbers) >= 4:
-                    x, y, width, height = map(int, numbers[:4])
-                    self.search_region = (x, y, width, height)
-                    self.app_name = app_name
-                    self.region_label.config(text=f"App: {app_name}\nRegion: ({x},{y}) {width}x{height}")
-                    self.status_label.config(text=f"Found {app_name} window!")
-                else:
-                    self.status_label.config(text="Could not parse window bounds")
-            else:
-                error_msg = result.stderr.strip()
-                if "Application isn't running" in error_msg or "process" in error_msg:
-                    self.status_label.config(text=f"{app_name} not running")
-                else:
-                    self.status_label.config(text="Could not find app window")
+                result = subprocess.run(['osascript', '-e', script], 
+                                      capture_output=True, text=True, timeout=5)
+                
+                if result.returncode == 0:
+                    # Parse the output
+                    output = result.stdout.strip()
+                    numbers = re.findall(r'\d+', output)
+                    
+                    if len(numbers) >= 4:
+                        x, y, width, height = map(int, numbers[:4])
+                        self.search_region = (x, y, width, height)
+                        self.app_name = try_name
+                        self.region_label.config(text=f"App: {try_name}\nRegion: ({x},{y}) {width}x{height}")
+                        self.status_label.config(text=f"Found {try_name} window!")
+                        return
+                    else:
+                        self.status_label.config(text="Could not parse window bounds")
+                        return
+            
+            # If we get here, none of the app names worked
+            self.status_label.config(text=f"{app_name} not found or not running")
                     
         except subprocess.TimeoutExpired:
             self.status_label.config(text="Search timed out")
@@ -264,18 +269,24 @@ class AutoClickerGUI:
         def on_press(key):
             try:
                 # Check for 'z' and 'x' keys
-                if hasattr(key, 'char'):
-                    if key.char == 'z':
-                        self.toggle_clicking()
-                    elif key.char == 'x':
-                        self.toggle_clicking()
+                if hasattr(key, 'char') and key.char:
+                    if key.char.lower() == 'z':
+                        print("Z key pressed - toggling")
+                        self.root.after(0, self.toggle_clicking)
+                        return
+                    elif key.char.lower() == 'x':
+                        print("X key pressed - toggling")
+                        self.root.after(0, self.toggle_clicking)
+                        return
                 # Keep F7 and ESC for other functions
-                elif key == keyboard.Key.f7:
-                    self.set_region()
+                if key == keyboard.Key.f7:
+                    print("F7 pressed - setting region")
+                    self.root.after(0, self.set_region)
                 elif key == keyboard.Key.esc:
-                    self.stop_application()
-            except:
-                pass
+                    print("ESC pressed - stopping application")
+                    self.root.after(0, self.stop_application)
+            except Exception as e:
+                print(f"Hotkey error: {e}")
         
         self.listener = keyboard.Listener(on_press=on_press)
         self.listener.start()
@@ -351,9 +362,13 @@ class AutoClickerGUI:
             print("\nAutoclicker stopped\n")
             
     def stop_application(self):
+        print("Stopping application...")
+        if self.clicker.running:
+            self.clicker.toggle()
         self.clicker.stop()
-        self.listener.stop()
-        self.root.quit()
+        if hasattr(self, 'listener'):
+            self.listener.stop()
+        self.root.after(100, self.root.destroy)  # Delay slightly to ensure clean shutdown
         
     def run(self):
         self.root.mainloop()
