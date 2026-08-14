@@ -11,6 +11,7 @@ local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManage
 
 local ClickEvent = ReplicatedStorage:WaitForChild("ClickEvent")
 local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
+local ResetEvent = ReplicatedStorage:WaitForChild("ResetEvent")
 local SyncState = ReplicatedStorage:WaitForChild("SyncState")
 
 -- State storage for active players
@@ -50,6 +51,15 @@ PurchaseEvent.OnServerEvent:Connect(function(player, upgradeId)
 		session[field] += 1
 		syncPlayer(player)
 	end
+end)
+
+-- [SERVER] Handle Reset
+ResetEvent.OnServerEvent:Connect(function(player)
+	local session = activeSessions[player.UserId]
+	if not session then return end
+
+	activeSessions[player.UserId] = GameLogic.GetDefaultSession()
+	syncPlayer(player)
 end)
 
 -- Player Lifecycle

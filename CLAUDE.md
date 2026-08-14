@@ -49,7 +49,9 @@ RemoteEvents (`ClickEvent`, `PurchaseEvent`, `SyncState`, `LeaderboardUpdate`) a
 Environment setup done client-side: `Players.CharacterAutoLoads = false`, camera locked to `Scriptable` in a fixed position, lighting set to pitch black — the "void" aesthetic.
 
 ### Tests
-Unit tests live in `src/tests/*.spec.lua` and run automatically on server startup via `src/tests/runner.server.lua`, which bootstraps TestEZ if present in `ReplicatedStorage` (silently skips otherwise). There's no CLI test runner — tests execute inside a running Roblox server session (Studio or a live server).
+Unit tests live in `src/tests/*.spec.lua` and run automatically on server startup via `src/tests/runner.server.lua`, which bootstraps TestEZ if present in `ReplicatedStorage` (silently skips otherwise). These only execute inside a running Roblox server session (Studio or a live server) — there's no CLI runner for them.
+
+For the pure game-math in `src/shared/GameLogic.lua` specifically, `test/gameLogic.test.luau` runs headlessly via [Lune](https://lune-org.github.io/docs) (`brew install lune`, then `lune run test/gameLogic.test.luau`) — no Studio needed. This works because `GameLogic.lua`'s one `require` call branches on whether the Roblox-only `script` global exists, falling back to a Lune-style relative require otherwise; the file is otherwise unmodified between the two runtimes. `test/` lives outside `src/` on purpose so Rojo never syncs it into the Roblox place.
 
 ### Pending work (from GEMINI.md roadmap)
 - Global leaderboard UI on the client (server-side plumbing already exists in `LeaderboardManager`).

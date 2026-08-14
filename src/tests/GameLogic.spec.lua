@@ -17,6 +17,12 @@ return function()
 		return base
 	end
 
+	describe("GetDefaultSession", function()
+		it("should return every field zeroed", function()
+			expect(GameLogic.GetDefaultSession()).to.deep.equal(session())
+		end)
+	end)
+
 	describe("GetUpgradeCost", function()
 		it("should return the flat cost for each upgrade regardless of how many are owned", function()
 			expect(GameLogic.GetUpgradeCost("AutoClicker")).to.equal(10)

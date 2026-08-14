@@ -1,6 +1,8 @@
 --!strict
 local DataStoreService = game:GetService("DataStoreService")
-local GameConstants = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("GameConstants"))
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+local GameConstants = require(Shared:WaitForChild("GameConstants"))
+local GameLogic = require(Shared:WaitForChild("GameLogic"))
 
 -- Fallback safely if DataStoreService cannot load (e.g., unpublished place or API access not enabled in Studio)
 local PlayerDataStore = nil
@@ -17,23 +19,9 @@ end
 
 local DataManager = {}
 
-export type PlayerData = {
-	score: number,
-	autoClickerCount: number,
-	megaClickerCount: number,
-	clickPowerCount: number,
-	multiplierCount: number,
-}
+local defaultData: GameLogic.Session = GameLogic.GetDefaultSession()
 
-local defaultData: PlayerData = {
-	score = 0,
-	autoClickerCount = 0,
-	megaClickerCount = 0,
-	clickPowerCount = 0,
-	multiplierCount = 0,
-}
-
-function DataManager.Load(player: Player): PlayerData
+function DataManager.Load(player: Player): GameLogic.Session
 	local success, result = false, nil
 	if PlayerDataStore then
 		success, result = pcall(function()
@@ -51,17 +39,11 @@ function DataManager.Load(player: Player): PlayerData
 			multiplierCount = result.multiplierCount or defaultData.multiplierCount,
 		}
 	else
-		return {
-			score = defaultData.score,
-			autoClickerCount = defaultData.autoClickerCount,
-			megaClickerCount = defaultData.megaClickerCount,
-			clickPowerCount = defaultData.clickPowerCount,
-			multiplierCount = defaultData.multiplierCount,
-		}
+		return GameLogic.GetDefaultSession()
 	end
 end
 
-function DataManager.Save(player: Player, data: PlayerData)
+function DataManager.Save(player: Player, data: GameLogic.Session)
 	if not PlayerDataStore then return end
 
 	local success, err = pcall(function()

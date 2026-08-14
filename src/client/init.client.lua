@@ -11,6 +11,7 @@ local GameLogic = require(Shared:WaitForChild("GameLogic"))
 
 local ClickEvent = ReplicatedStorage:WaitForChild("ClickEvent")
 local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
+local ResetEvent = ReplicatedStorage:WaitForChild("ResetEvent")
 local SyncState = ReplicatedStorage:WaitForChild("SyncState")
 
 local player = Players.LocalPlayer
@@ -199,28 +200,41 @@ resetButton.LayoutOrder = 6
 resetButton.Parent = mainContainer
 
 -- Input Logic
-local function animateClick(btn: GuiButton)
-	local tween = TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = UDim2.new(btn.Size.X.Scale, btn.Size.X.Offset * 0.96, btn.Size.Y.Scale, btn.Size.Y.Offset * 0.96)
-	})
-	tween:Play()
-	tween.Completed:Wait()
-	TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-		Size = UDim2.new(btn.Size.X.Scale, btn.Size.X.Offset / 0.96, btn.Size.Y.Scale, btn.Size.Y.Offset / 0.96)
+-- Always tweens relative to the button's fixed original size (never its
+-- current, possibly-already-shrunk size), so rapid overlapping clicks can't
+-- compound and leave the button permanently smaller.
+local clickButtonOriginalSize = clickButton.Size
+
+local function animateClick(btn: GuiButton, originalSize: UDim2)
+	local shrunkSize = UDim2.new(
+		originalSize.X.Scale, originalSize.X.Offset * 0.96,
+		originalSize.Y.Scale, originalSize.Y.Offset * 0.96
+	)
+	TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = shrunkSize
 	}):Play()
+	task.delay(0.05, function()
+		TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Size = originalSize
+		}):Play()
+	end)
 end
 
 clickButton.MouseButton1Click:Connect(function()
 	ClickEvent:FireServer()
-	animateClick(clickButton)
+	animateClick(clickButton, clickButtonOriginalSize)
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if input.KeyCode == Enum.KeyCode.Space then
 		ClickEvent:FireServer()
-		animateClick(clickButton)
+		animateClick(clickButton, clickButtonOriginalSize)
 	end
+end)
+
+resetButton.MouseButton1Click:Connect(function()
+	ResetEvent:FireServer()
 end)
 
 -- Sync State

@@ -12,6 +12,9 @@
       "PurchaseEvent": {
         "$className": "RemoteEvent"
       },
+      "ResetEvent": {
+        "$className": "RemoteEvent"
+      },
       "SyncState": {
         "$className": "RemoteEvent"
       },
