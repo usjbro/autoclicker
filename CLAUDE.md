@@ -11,7 +11,7 @@ This repo contains **two independent implementations of the same idle-clicker ga
 
 `my-new-game/` is unrelated, unused Rojo scaffolding (default `rojo init` boilerplate with placeholder "Hello world" scripts) — not part of either real project. `__pycache__/` contains stale compiled artifacts with no corresponding source in the repo; ignore it.
 
-Game economics are shared conceptually across both implementations: clicking earns points, auto-clickers passively earn `count` points/sec, and each additional auto-clicker costs `floor(10 * 1.15^count)`. When changing the formula in one implementation, check whether the other should match.
+The two implementations' economics have **intentionally diverged**: the browser version still uses the original single-upgrade formula (clicking earns 1 point, auto-clickers passively earn `count` points/sec, each additional auto-clicker costs `floor(10 * 1.15^count)`). The Roblox version instead has four upgrades (base + Mega Auto-Clicker, Click Power, Global Multiplier) all priced with **flat, non-scaling costs** — see `src/shared/GameConstants.lua`'s `UPGRADES` table. Don't assume the two need to match; check with the user before porting one implementation's formula changes to the other.
 
 ## Browser version
 
@@ -37,8 +37,8 @@ Then connect via the Rojo Studio plugin.
 ### Architecture — server-authoritative state
 The server is the source of truth for scores and purchases; the client only renders state pushed to it and fires input events.
 
-- `src/shared/GameConstants.lua` — shared constants (`BASE_COST`, `COST_MULTIPLIER`, `TICK_RATE`, DataStore keys).
-- `src/shared/GameLogic.lua` — pure functions for cost scaling (`CalculateAutoClickerCost`) and idle gain (`CalculateIdleGain`), required by both server (validation) and client (UI display) so the math can't drift between them.
+- `src/shared/GameConstants.lua` — shared constants: the `UPGRADES` table (flat `Cost` plus `Rate`/`Bonus` per upgrade id), `UPGRADE_FIELDS` (upgrade id → session field name), `TICK_RATE`, DataStore keys.
+- `src/shared/GameLogic.lua` — pure functions for cost lookup (`GetUpgradeCost`), click/idle gain (`CalculateClickGain`, `CalculateIdleGain`), and the income multiplier (`CalculateMultiplier`), required by both server (validation) and client (UI display) so the math can't drift between them.
 - `src/server/GameService.server.lua` — owns `activeSessions` (per-player state keyed by `UserId`), handles `ClickEvent`/`PurchaseEvent` from clients, runs the idle-gain loop (`task.spawn` loop on `GameConstants.TICK_RATE`), and pushes state to clients via the `SyncState` RemoteEvent. Loads/saves sessions via `DataManager` on player join/leave.
 - `src/server/DataManager.lua` — wraps `DataStoreService` (store name = `GameConstants.STORAGE_KEY`) for per-player load/save; falls back to default `{score=0, autoClickerCount=0}` on any failure.
 - `src/server/LeaderboardManager.lua` — wraps a separate `OrderedDataStore` (`GameConstants.LEADERBOARD_KEY`) for the top-10 global leaderboard. Refreshes every 60s, broadcasts via the `LeaderboardUpdate` RemoteEvent, caches usernames to avoid API throttling, and degrades gracefully (warns + serves cached data) if DataStore API access isn't available (e.g. in Studio without API access enabled).
