@@ -1,16 +1,19 @@
 # autoclicker
 
-A small browser-based idle clicker game. Click the button to earn points, then
-spend points on auto-clickers that earn points for you every second.
+**Autoclicker Void** — a Roblox idle-clicker game built with Luau and synced via [Rojo](https://rojo.space/). Click to earn points, spend them on upgrades that grow your score over time, rebirth for a permanent multiplier, and compete on a global leaderboard.
+
+See `CLAUDE.md` for architecture and the development workflow.
 
 ## Running it
 
-Open `index.html` in a browser, or serve the folder with any static file
-server, e.g.:
-
 ```sh
-python3 -m http.server
+rojo serve
 ```
 
-Progress is saved automatically to `localStorage`, so refreshing the page
-won't lose your score.
+Then connect via the Rojo Studio plugin.
+
+## Tests
+
+```sh
+lune run test/gameLogic.test.luau
+```
