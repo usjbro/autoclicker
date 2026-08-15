@@ -1,0 +1,35 @@
+--!strict
+return function()
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local NumberFormat = require(ReplicatedStorage.Shared.NumberFormat)
+
+	describe("Format", function()
+		it("should leave small numbers as plain integers", function()
+			expect(NumberFormat.Format(0)).to.equal("0")
+			expect(NumberFormat.Format(5)).to.equal("5")
+			expect(NumberFormat.Format(999)).to.equal("999")
+		end)
+
+		it("should abbreviate thousands/millions/billions per the spec's examples", function()
+			expect(NumberFormat.Format(1000)).to.equal("1K")
+			expect(NumberFormat.Format(10000)).to.equal("10K")
+			expect(NumberFormat.Format(100000)).to.equal("100K")
+			expect(NumberFormat.Format(1250)).to.equal("1.25K")
+			expect(NumberFormat.Format(1000000)).to.equal("1M")
+			expect(NumberFormat.Format(1500000)).to.equal("1.5M")
+			expect(NumberFormat.Format(1000000000)).to.equal("1B")
+			expect(NumberFormat.Format(2000000000)).to.equal("2B")
+			expect(NumberFormat.Format(1000000000000)).to.equal("1T")
+		end)
+
+		it("should continue past T with two-letter suffixes", function()
+			expect(NumberFormat.Format(1000000000000000)).to.equal("1aa")
+		end)
+
+		it("should handle negative numbers and non-finite guards", function()
+			expect(NumberFormat.Format(-1500)).to.equal("-1.5K")
+			expect(NumberFormat.Format(0 / 0)).to.equal("0")
+			expect(NumberFormat.Format(math.huge)).to.equal("∞")
+		end)
+	end)
+end

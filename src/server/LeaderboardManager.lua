@@ -5,6 +5,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConstants = require(Shared:WaitForChild("GameConstants"))
+local GameLogic = require(Shared:WaitForChild("GameLogic"))
+local DataManager = require(script.Parent:WaitForChild("DataManager"))
 
 local LeaderboardUpdate = ReplicatedStorage:WaitForChild("LeaderboardUpdate")
 
@@ -20,10 +22,31 @@ export type LeaderboardEntry = {
 	userId: number,
 	username: string,
 	score: number,
+	totalClicks: number,
 }
 
 local cachedLeaderboard: {LeaderboardEntry} = {}
 local usernameCache: {[number]: string} = {}
+local getActiveSessionsRef: (() -> {[number]: GameLogic.Session})? = nil
+
+-- totalClicks isn't in the OrderedDataStore (that only sorts by score), so
+-- pull it from the live session if the player's online, otherwise fall back
+-- to their last save. Never errors -- worst case a leaderboard row shows 0.
+local function getTotalClicks(userId: number): number
+	if getActiveSessionsRef then
+		local session = getActiveSessionsRef()[userId]
+		if session then
+			return session.totalClicks
+		end
+	end
+
+	local saved = DataManager.LoadRaw(userId)
+	if saved then
+		return saved.totalClicks
+	end
+
+	return 0
+end
 
 -- Helper to retrieve a player's username (with caching to avoid network limit throttling)
 local function getUsername(userId: number): string
@@ -78,6 +101,7 @@ function LeaderboardManager.Refresh(): {LeaderboardEntry}
 				userId = userId,
 				username = username,
 				score = tonumber(entry.value) or 0,
+				totalClicks = getTotalClicks(userId),
 			})
 		end
 	end
@@ -108,7 +132,9 @@ function LeaderboardManager.SaveScore(player: Player, score: number)
 end
 
 -- Starts the periodic update loop and registers joining players
-function LeaderboardManager.Start(getActiveSessions: () -> {[number]: {score: number}})
+function LeaderboardManager.Start(getActiveSessions: () -> {[number]: GameLogic.Session})
+	getActiveSessionsRef = getActiveSessions
+
 	-- Send the existing cached leaderboard immediately to any player upon joining
 	Players.PlayerAdded:Connect(function(player)
 		LeaderboardUpdate:FireClient(player, cachedLeaderboard)
