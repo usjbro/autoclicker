@@ -431,7 +431,14 @@ end
 setSliderVisual(sliderPercent)
 
 local useBaseSpeed = true
+
+-- Tracks the last slider value sent to the server that hasn't been confirmed
+-- back via SyncState yet, so a stale sync (e.g. the idle-gain tick) can't
+-- clobber a just-released drag before the server has processed it.
+local pendingSliderPercent: number? = nil
+
 local function sendSpeedSettings()
+	pendingSliderPercent = sliderPercent
 	UpdateSpeedSettingsEvent:FireServer(useBaseSpeed, sliderPercent)
 end
 
@@ -465,12 +472,14 @@ end
 sliderHandle.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		draggingSlider = true
+		pendingSliderPercent = nil
 	end
 end)
 
 sliderTrack.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		draggingSlider = true
+		pendingSliderPercent = nil
 		updateSliderFromInput(input.Position)
 	end
 end)
@@ -658,9 +667,14 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 	useBaseSpeed = state.useBaseSpeed
 	normalSpeedButton.BackgroundColor3 = if useBaseSpeed then COLOR_ACCENT else COLOR_PANEL
 	clickBasedSpeedButton.BackgroundColor3 = if useBaseSpeed then COLOR_PANEL else COLOR_ACCENT
-	if not draggingSlider then
+	-- Skip overwriting the displayed value while actively dragging, or while a
+	-- locally-sent value hasn't round-tripped back yet (avoids the handle
+	-- visibly snapping back to a stale pre-drag value then jumping forward
+	-- again once the real update arrives).
+	if not draggingSlider and (pendingSliderPercent == nil or state.speedSliderPercent == pendingSliderPercent) then
 		sliderPercent = state.speedSliderPercent
 		setSliderVisual(sliderPercent)
+		pendingSliderPercent = nil
 	end
 	currentSpeedLabel.Text = ("Current speed: %d (max %d)"):format(
 		math.floor(SpeedCalculator.CalculateEffectiveSpeed(state) + 0.5),
