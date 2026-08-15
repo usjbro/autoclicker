@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  LUNE_VERSION: 0.10.5
+  ROJO_VERSION: 7.7.0
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Lune/Rojo binaries
+        id: tool-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin
+          key: ${{ runner.os }}-lune-${{ env.LUNE_VERSION }}-rojo-${{ env.ROJO_VERSION }}
+
+      - name: Install Lune
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fL -o lune.zip "https://github.com/lune-org/lune/releases/download/v${LUNE_VERSION}/lune-${LUNE_VERSION}-linux-x86_64.zip"
+          unzip lune.zip -d "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/lune"
+
+      - name: Install Rojo
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fL -o rojo.zip "https://github.com/rojo-rbx/rojo/releases/download/v${ROJO_VERSION}/rojo-${ROJO_VERSION}-linux-x86_64.zip"
+          unzip rojo.zip -d "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/rojo"
+
+      - name: Add tools to PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run Lune test suite
+        run: lune run test/gameLogic.test.luau
+
+      - name: Verify Rojo project builds
+        run: rojo build default.project.json -o /tmp/ci-build.rbxlx
