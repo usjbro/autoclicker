@@ -5,6 +5,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConstants = require(Shared:WaitForChild("GameConstants"))
+local GameLogic = require(Shared:WaitForChild("GameLogic"))
+local DataManager = require(script.Parent:WaitForChild("DataManager"))
 
 local LeaderboardUpdate = ReplicatedStorage:WaitForChild("LeaderboardUpdate")
 
@@ -20,10 +22,50 @@ export type LeaderboardEntry = {
 	userId: number,
 	username: string,
 	score: number,
+	totalClicks: number,
 }
 
 local cachedLeaderboard: {LeaderboardEntry} = {}
 local usernameCache: {[number]: string} = {}
+
+-- Cached with a TTL rather than indefinitely: a game can run multiple server
+-- instances at once, and totalClicks can change on a *different* server the
+-- player is active on right now, or after they rejoin *this* server, click
+-- more, and leave again -- an indefinite cache would never see that update.
+-- The TTL bounds staleness across servers; PlayerAdded below also drops the
+-- entry immediately so a local rejoin always gets a fresh read once they
+-- leave again.
+local OFFLINE_CACHE_TTL_SECONDS = 300
+local offlineTotalClicksCache: {[number]: { value: number, cachedAt: number }} = {}
+local getActiveSessionsRef: (() -> {[number]: GameLogic.Session})? = nil
+
+-- totalClicks isn't in the OrderedDataStore (that only sorts by score), so
+-- pull it from the live session if the player's online, otherwise fall back
+-- to their last save (cached briefly, see above). Never errors -- worst case
+-- a leaderboard row shows 0 or a slightly stale value.
+local function getTotalClicks(userId: number): number
+	if getActiveSessionsRef then
+		local session = getActiveSessionsRef()[userId]
+		if session then
+			return session.totalClicks
+		end
+	end
+
+	local cached = offlineTotalClicksCache[userId]
+	if cached and (os.time() - cached.cachedAt) < OFFLINE_CACHE_TTL_SECONDS then
+		return cached.value
+	end
+
+	local saved = DataManager.LoadRaw(userId)
+	if saved then
+		offlineTotalClicksCache[userId] = { value = saved.totalClicks, cachedAt = os.time() }
+		return saved.totalClicks
+	end
+
+	-- DataStore failed right now -- an expired-but-present cached value is
+	-- still better than showing 0.
+	return cached and cached.value or 0
+end
 
 -- Helper to retrieve a player's username (with caching to avoid network limit throttling)
 local function getUsername(userId: number): string
@@ -78,6 +120,7 @@ function LeaderboardManager.Refresh(): {LeaderboardEntry}
 				userId = userId,
 				username = username,
 				score = tonumber(entry.value) or 0,
+				totalClicks = getTotalClicks(userId),
 			})
 		end
 	end
@@ -108,9 +151,16 @@ function LeaderboardManager.SaveScore(player: Player, score: number)
 end
 
 -- Starts the periodic update loop and registers joining players
-function LeaderboardManager.Start(getActiveSessions: () -> {[number]: {score: number}})
+function LeaderboardManager.Start(getActiveSessions: () -> {[number]: GameLogic.Session})
+	getActiveSessionsRef = getActiveSessions
+
 	-- Send the existing cached leaderboard immediately to any player upon joining
 	Players.PlayerAdded:Connect(function(player)
+		-- Their totalClicks may change while online; drop any cached offline
+		-- value now so the next time they're queried (after they leave again)
+		-- getTotalClicks re-fetches instead of returning a stale snapshot.
+		offlineTotalClicksCache[player.UserId] = nil
+
 		LeaderboardUpdate:FireClient(player, cachedLeaderboard)
 	end)
 
@@ -125,9 +175,14 @@ function LeaderboardManager.Start(getActiveSessions: () -> {[number]: {score: nu
 		while true do
 			task.wait(60)
 
-			-- Save scores for all active players
-			local sessions = getActiveSessions()
-			for userId, session in pairs(sessions) do
+			-- Save scores for all active players. A bare field read here is
+			-- always safe unlocked: nothing in this codebase mutates a
+			-- session's score field across a yield (every multi-step
+			-- read-modify-write, e.g. the Robux grant, holds SessionLock for
+			-- its own duration), so this can never observe a torn write. The
+			-- actual DataStore write happens inside SaveScore's own detached
+			-- task.spawn, which a session lock here wouldn't cover anyway.
+			for userId, session in pairs(getActiveSessions()) do
 				local player = Players:GetPlayerByUserId(userId)
 				if player then
 					LeaderboardManager.SaveScore(player, session.score)
