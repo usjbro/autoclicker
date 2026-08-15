@@ -133,6 +133,9 @@ function RobuxPurchaseManager.Start(
 				-- Grant, then durably save immediately -- real money must not
 				-- depend on the player disconnecting naturally.
 				local field = GameConstants.UPGRADE_FIELDS[upgradeId]
+				if not field then
+					error("no UPGRADE_FIELDS entry for upgrade " .. upgradeId, 0)
+				end
 				session[field] += 1
 
 				if not DataManager.IsAvailable() then
