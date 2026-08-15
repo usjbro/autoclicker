@@ -55,11 +55,11 @@ For the pure logic in `src/shared/` (`GameLogic.lua`, `NumberFormat.lua`, `Speed
 
 ## Development workflow
 
-`main` is the deployable branch — it should always be in a known-good, tested state. Work happens on short-lived branches, one per issue or fix, merged back via PR:
+`main` is the single trunk branch — it's what's kept local and deployed to Roblox, and it should always be in a known-good, tested state. There is no separate long-lived integration branch; every other branch merges directly into `main`. Work happens on short-lived branches, one per issue or fix, merged back via PR:
 
 1. Branch off the latest `main`: `git checkout -b fix/<short-description>` (or `feature/`, `chore/` for non-bug work).
 2. Make the change. Run `lune run test/gameLogic.test.luau` and `rojo build default.project.json -o /tmp/check.rbxlx` locally before pushing.
-3. Open a PR — against `main`, or against a longer-lived integration branch if one's in use (`.github/PULL_REQUEST_TEMPLATE.md` has the checklist). GitHub Actions (`.github/workflows/ci.yml`) runs the same two checks automatically on every PR, regardless of target branch, plus every push to `main`, using `lune`/`rojo` versions pinned in that file — a local `brew install lune`/`brew install rojo` tracks whatever's current in Homebrew instead, so if a Lune/Rojo upgrade ever changes behavior, CI and a local run can disagree until `ci.yml`'s pinned versions are bumped to match.
+3. Open a PR against `main` (`.github/PULL_REQUEST_TEMPLATE.md` has the checklist). GitHub Actions (`.github/workflows/ci.yml`) runs the same two checks automatically on every PR, regardless of target branch, plus every push to `main`, using `lune`/`rojo` versions pinned in that file — a local `brew install lune`/`brew install rojo` tracks whatever's current in Homebrew instead, so if a Lune/Rojo upgrade ever changes behavior, CI and a local run can disagree until `ci.yml`'s pinned versions are bumped to match.
 4. `main` has branch protection requiring a PR (not a direct push) and a passing CI run before merging. Repo settings only allow squash-merging and auto-delete the branch afterward, enforcing that step too rather than relying on remembering to do it manually.
 5. Prefer reviewing the diff (manually or via the `/code-review` skill) before merging, especially for anything touching `src/server/` — this codebase has already hit real concurrency bugs (shared per-player session state mutated from multiple RemoteEvent handlers/DataStore callbacks) that surfaced only under review, not from casual reading.
 
