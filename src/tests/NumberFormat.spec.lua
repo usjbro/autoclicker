@@ -22,6 +22,12 @@ return function()
 			expect(NumberFormat.Format(1000000000000)).to.equal("1T")
 		end)
 
+		it("should promote to the K tier when rounding a sub-1000 value up to 1000", function()
+			expect(NumberFormat.Format(999.6)).to.equal("1K")
+			expect(NumberFormat.Format(999.99)).to.equal("1K")
+			expect(NumberFormat.Format(999.4)).to.equal("999")
+		end)
+
 		it("should continue past T with two-letter suffixes", function()
 			expect(NumberFormat.Format(1000000000000000)).to.equal("1aa")
 		end)

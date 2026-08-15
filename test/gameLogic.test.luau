@@ -190,6 +190,12 @@ test("Format abbreviates thousands/millions/billions per the spec's examples", f
 	assertEqual(NumberFormat.Format(1000000000000), "1T", "1000000000000")
 end)
 
+test("Format promotes to the K tier when rounding a sub-1000 value up to 1000", function()
+	assertEqual(NumberFormat.Format(999.6), "1K", "999.6 rounds up to 1000, should show as 1K not 1000")
+	assertEqual(NumberFormat.Format(999.99), "1K", "999.99 rounds up to 1000, should show as 1K not 1000")
+	assertEqual(NumberFormat.Format(999.4), "999", "999.4 rounds down, stays under the threshold")
+end)
+
 test("Format continues past T with two-letter suffixes", function()
 	assertEqual(NumberFormat.Format(1000000000000000), "1aa", "1e15")
 end)
