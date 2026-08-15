@@ -7,6 +7,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConstants = require(Shared:WaitForChild("GameConstants"))
 local GameLogic = require(Shared:WaitForChild("GameLogic"))
 local DataManager = require(script.Parent:WaitForChild("DataManager"))
+local SessionLock = require(script.Parent:WaitForChild("SessionLock"))
 
 local LeaderboardUpdate = ReplicatedStorage:WaitForChild("LeaderboardUpdate")
 
@@ -175,12 +176,32 @@ function LeaderboardManager.Start(getActiveSessions: () -> {[number]: GameLogic.
 		while true do
 			task.wait(60)
 
-			-- Save scores for all active players
-			local sessions = getActiveSessions()
-			for userId, session in pairs(sessions) do
+			-- Save scores for all active players. Snapshot the userIds before
+			-- looping: SessionLock.Run can yield if contended, and Lua only
+			-- guarantees pairs() stays valid across removed keys during
+			-- iteration, not added ones -- a player joining mid-loop would
+			-- otherwise be able to corrupt this traversal.
+			local userIds = {}
+			for userId in pairs(getActiveSessions()) do
+				table.insert(userIds, userId)
+			end
+
+			for _, userId in ipairs(userIds) do
 				local player = Players:GetPlayerByUserId(userId)
 				if player then
-					LeaderboardManager.SaveScore(player, session.score)
+					-- Each player's own coroutine, same reasoning as the idle-gain
+					-- tick loop: one contended lock shouldn't delay this whole pass
+					-- (and the broadcast/Refresh() that follows) for every player.
+					task.spawn(function()
+						-- Locked so this can never read a session mid-mutation by
+						-- another handler (e.g. a Reset zeroing score concurrently).
+						SessionLock.Run(userId, function()
+							local session = getActiveSessions()[userId]
+							if session then
+								LeaderboardManager.SaveScore(player, session.score)
+							end
+						end)
+					end)
 				end
 			end
 

@@ -92,14 +92,25 @@ end
 -- SessionLock, since several of these can yield on a DataStore call
 -- mid-operation (Save, in particular) -- without this, e.g. a Reset could
 -- zero a session's fields while PlayerRemoving's save for that same player
--- is still in flight, or a disconnect could race a purchase.
+-- is still in flight, or a disconnect could race a purchase. This must cover
+-- every reader/writer of activeSessions, not just the RemoteEvent handlers --
+-- the idle-gain tick loop and PlayerAdded/PlayerRemoving below go through it
+-- too.
+
+-- Acquires the lock, looks up the session, and calls fn(session) only if it
+-- exists -- the "lock + lookup + guard" sequence every handler below needs.
+local function withSession(player: Player, fn: (GameLogic.Session) -> ())
+	SessionLock.Run(player.UserId, function()
+		local session = activeSessions[player.UserId]
+		if session then
+			fn(session)
+		end
+	end)
+end
 
 -- [SERVER] Handle Click
 ClickEvent.OnServerEvent:Connect(function(player)
-	SessionLock.Run(player.UserId, function()
-		local session = activeSessions[player.UserId]
-		if not session then return end
-
+	withSession(player, function(session)
 		session.score += GameLogic.CalculateClickGain(session)
 		session.totalClicks += 1
 		MovementSystem.ApplyEffectiveSpeed(player, session)
@@ -109,10 +120,7 @@ end)
 
 -- [SERVER] Handle Purchase
 PurchaseEvent.OnServerEvent:Connect(function(player, upgradeId)
-	SessionLock.Run(player.UserId, function()
-		local session = activeSessions[player.UserId]
-		if not session then return end
-
+	withSession(player, function(session)
 		if typeof(upgradeId) ~= "string" then return end
 		local field = GameConstants.UPGRADE_FIELDS[upgradeId]
 		if not field then return end
@@ -128,10 +136,7 @@ end)
 
 -- [SERVER] Handle Reset
 ResetEvent.OnServerEvent:Connect(function(player)
-	SessionLock.Run(player.UserId, function()
-		local session = activeSessions[player.UserId]
-		if not session then return end
-
+	withSession(player, function(session)
 		applyInPlace(session, GameLogic.ResetProgress(session))
 		syncPlayer(player)
 	end)
@@ -139,10 +144,7 @@ end)
 
 -- [SERVER] Handle Rebirth
 RebirthEvent.OnServerEvent:Connect(function(player)
-	SessionLock.Run(player.UserId, function()
-		local session = activeSessions[player.UserId]
-		if not session then return end
-
+	withSession(player, function(session)
 		if not GameLogic.CanRebirth(session) then return end
 
 		applyInPlace(session, GameLogic.PerformRebirth(session))
@@ -154,10 +156,7 @@ end)
 -- preference (base speed on/off, slider percent) -- the actual WalkSpeed is
 -- always recomputed server-side via MovementSystem, never taken from the client.
 UpdateSpeedSettingsEvent.OnServerEvent:Connect(function(player, useBaseSpeed, speedSliderPercent)
-	SessionLock.Run(player.UserId, function()
-		local session = activeSessions[player.UserId]
-		if not session then return end
-
+	withSession(player, function(session)
 		if typeof(useBaseSpeed) == "boolean" then
 			session.useBaseSpeed = useBaseSpeed
 		end
@@ -173,8 +172,16 @@ end)
 
 -- Player Lifecycle
 Players.PlayerAdded:Connect(function(player)
-	local data = DataManager.Load(player)
+	-- DataManager.Load happens inside the lock (unlike every other handler,
+	-- which only looks up an already-present session) so a fast join-then-
+	-- leave can't let PlayerRemoving's no-op (session not installed yet) run
+	-- before this installs one -- PlayerRemoving would otherwise be forced to
+	-- wait for this whole critical section to finish first either way, but
+	-- doing the load itself inside the lock is what guarantees PlayerRemoving
+	-- can never run *between* the load finishing and the session being
+	-- installed.
 	SessionLock.Run(player.UserId, function()
+		local data = DataManager.Load(player)
 		activeSessions[player.UserId] = data
 		-- Covers the case where the character already spawned (default
 		-- WalkSpeed) before DataManager.Load finished; MovementSystem.Start's
@@ -185,13 +192,10 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	SessionLock.Run(player.UserId, function()
-		local session = activeSessions[player.UserId]
-		if session then
-			DataManager.Save(player, session)
-			LeaderboardManager.SaveScore(player, session.score)
-			activeSessions[player.UserId] = nil
-		end
+	withSession(player, function(session)
+		DataManager.Save(player, session)
+		LeaderboardManager.SaveScore(player, session.score)
+		activeSessions[player.UserId] = nil
 	end)
 end)
 
@@ -199,16 +203,37 @@ end)
 task.spawn(function()
 	while true do
 		local deltaTime = task.wait(GameConstants.TICK_RATE)
-		for userId, session in pairs(activeSessions) do
-			if session.autoClickerCount > 0 or session.megaClickerCount > 0 then
-				local gain = GameLogic.CalculateIdleGain(session, deltaTime)
-				session.score += gain
-				
-				local player = Players:GetPlayerByUserId(userId)
-				if player then
-					syncPlayer(player)
-				end
-			end
+
+		-- Snapshot the current userIds before looping: withSession below can
+		-- yield (SessionLock.Run waits on task.wait() if contended), and
+		-- Lua only guarantees pairs() stays valid across removed keys during
+		-- iteration, not added ones -- a player joining mid-tick would
+		-- otherwise be able to corrupt this traversal.
+		local userIds = {}
+		for userId in pairs(activeSessions) do
+			table.insert(userIds, userId)
+		end
+
+		for _, userId in ipairs(userIds) do
+			-- Each player's tick runs in its own coroutine so one player's
+			-- contended lock (e.g. mid Robux-purchase save) can't stall idle
+			-- gain for every other online player this tick.
+			task.spawn(function()
+				SessionLock.Run(userId, function()
+					local session = activeSessions[userId]
+					if not session then return end
+					if session.autoClickerCount <= 0 and session.megaClickerCount <= 0 then return end
+
+					-- Credit the session unconditionally (matches the
+					-- pre-lock behavior) even if the Player object briefly
+					-- doesn't resolve; only the client sync needs a player.
+					session.score += GameLogic.CalculateIdleGain(session, deltaTime)
+					local player = Players:GetPlayerByUserId(userId)
+					if player then
+						syncPlayer(player)
+					end
+				end)
+			end)
 		end
 	end
 end)

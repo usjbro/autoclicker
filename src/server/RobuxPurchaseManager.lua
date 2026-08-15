@@ -115,10 +115,15 @@ function RobuxPurchaseManager.Start(
 		-- handler in GameService.server.lua, so a Reset/Rebirth/disconnect-save
 		-- can never interleave with this grant on the same session table.
 		SessionLock.Run(receiptInfo.PlayerId, function()
-			-- Everything below is one critical section: any failure -- a
-			-- missing session, a failed save, or anything unexpected -- takes
-			-- the same single path that releases the receipt claim, so it can
-			-- never be left permanently "processed" with nothing granted.
+			-- The pcall covers only the part that determines whether the
+			-- purchase is actually committed (grant + save) -- once that
+			-- succeeds, the purchase is durably done regardless of what
+			-- happens next, so a later failure (e.g. syncPlayer erroring on a
+			-- since-disconnected player) must NOT release the receipt claim
+			-- and risk a double-grant on retry. The contract is simple and
+			-- hard to get wrong by omission: returning normally means
+			-- success, error(...) means failure -- there's no separate
+			-- "did it work" flag to forget to set on some future added path.
 			local ok, err = pcall(function()
 				local session = getActiveSessions()[receiptInfo.PlayerId]
 				if not session then
@@ -136,8 +141,6 @@ function RobuxPurchaseManager.Start(
 					-- Robux purchases can never complete. Grant in-memory only,
 					-- same degrade-gracefully behavior the rest of the game
 					-- already has.
-					syncPlayer(player)
-					decision = Enum.ProductPurchaseDecision.PurchaseGranted
 					return
 				end
 
@@ -146,15 +149,17 @@ function RobuxPurchaseManager.Start(
 					session[field] -= 1
 					error("failed to save purchase", 0)
 				end
-
-				syncPlayer(player)
-				decision = Enum.ProductPurchaseDecision.PurchaseGranted
 			end)
 
 			if not ok then
 				unclaimReceipt(receiptInfo.PurchaseId)
 				warn("Robux purchase grant failed for PurchaseId " .. receiptInfo.PurchaseId
 					.. ", will retry: " .. tostring(err))
+			else
+				decision = Enum.ProductPurchaseDecision.PurchaseGranted
+				-- Best-effort UI update; a failure here doesn't affect whether
+				-- the purchase itself succeeded, so it's outside the pcall above.
+				syncPlayer(player)
 			end
 		end)
 
