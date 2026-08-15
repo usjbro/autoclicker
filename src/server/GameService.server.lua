@@ -76,6 +76,17 @@ local function syncPlayer(player: Player)
 	end
 end
 
+-- Copies every field from newValues into session in place, rather than
+-- replacing activeSessions[userId] with a new table outright. Other code
+-- (e.g. RobuxPurchaseManager) can hold a reference to a player's session
+-- across a yield; replacing the table wholesale would silently orphan that
+-- reference from a concurrent Reset/Rebirth.
+local function applyInPlace(session: GameLogic.Session, newValues: GameLogic.Session)
+	for key, value in pairs(newValues) do
+		(session :: any)[key] = value
+	end
+end
+
 -- [SERVER] Handle Click
 ClickEvent.OnServerEvent:Connect(function(player)
 	local session = activeSessions[player.UserId]
@@ -109,7 +120,7 @@ ResetEvent.OnServerEvent:Connect(function(player)
 	local session = activeSessions[player.UserId]
 	if not session then return end
 
-	activeSessions[player.UserId] = GameLogic.ResetProgress(session)
+	applyInPlace(session, GameLogic.ResetProgress(session))
 	syncPlayer(player)
 end)
 
@@ -120,7 +131,7 @@ RebirthEvent.OnServerEvent:Connect(function(player)
 
 	if not GameLogic.CanRebirth(session) then return end
 
-	activeSessions[player.UserId] = GameLogic.PerformRebirth(session)
+	applyInPlace(session, GameLogic.PerformRebirth(session))
 	syncPlayer(player)
 end)
 
