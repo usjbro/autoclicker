@@ -1,0 +1,143 @@
+--!strict
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local GameConstants = require(Shared:WaitForChild("GameConstants"))
+
+local LeaderboardUpdate = ReplicatedStorage:WaitForChild("LeaderboardUpdate")
+
+-- Fallback safely if DataStoreService cannot load (e.g., API access not enabled in Studio)
+local LeaderboardStore = nil
+pcall(function()
+	LeaderboardStore = DataStoreService:GetOrderedDataStore(GameConstants.LEADERBOARD_KEY)
+end)
+
+local LeaderboardManager = {}
+
+export type LeaderboardEntry = {
+	userId: number,
+	username: string,
+	score: number,
+}
+
+local cachedLeaderboard: {LeaderboardEntry} = {}
+local usernameCache: {[number]: string} = {}
+
+-- Helper to retrieve a player's username (with caching to avoid network limit throttling)
+local function getUsername(userId: number): string
+	if usernameCache[userId] then
+		return usernameCache[userId]
+	end
+
+	-- Check if player is currently in this server instance
+	local activePlayer = Players:GetPlayerByUserId(userId)
+	if activePlayer then
+		usernameCache[userId] = activePlayer.Name
+		return activePlayer.Name
+	end
+
+	-- Attempt to fetch name via asynchronous web API
+	local success, name = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+
+	if success and name then
+		usernameCache[userId] = name
+		return name
+	else
+		return "Player_" .. tostring(userId)
+	end
+end
+
+-- Refreshes the leaderboard from the OrderedDataStore and broadcasts the new data to all clients
+function LeaderboardManager.Refresh(): {LeaderboardEntry}
+	if not LeaderboardStore then
+		warn("LeaderboardStore is not initialized. Skipping Refresh.")
+		return cachedLeaderboard
+	end
+
+	local success, pages = pcall(function()
+		return LeaderboardStore:GetSortedAsync(false, 10) -- top 10 descending
+	end)
+
+	if not success or not pages then
+		warn("Failed to retrieve sorted leaderboard data: " .. tostring(pages))
+		return cachedLeaderboard
+	end
+
+	local page = pages:GetCurrentPage()
+	local newList: {LeaderboardEntry} = {}
+
+	for _, entry in ipairs(page) do
+		local userId = tonumber(entry.key)
+		if userId then
+			local username = getUsername(userId)
+			table.insert(newList, {
+				userId = userId,
+				username = username,
+				score = tonumber(entry.value) or 0,
+			})
+		end
+	end
+
+	cachedLeaderboard = newList
+	-- Broadcast updated list to all players
+	LeaderboardUpdate:FireAllClients(cachedLeaderboard)
+
+	return cachedLeaderboard
+end
+
+-- Saves a player's score to the OrderedDataStore
+function LeaderboardManager.SaveScore(player: Player, score: number)
+	if not LeaderboardStore then return end
+
+	local integerScore = math.floor(score)
+	if integerScore <= 0 then return end
+
+	task.spawn(function()
+		local success, err = pcall(function()
+			LeaderboardStore:SetAsync(tostring(player.UserId), integerScore)
+		end)
+
+		if not success then
+			warn("Failed to save leaderboard score for " .. player.Name .. ": " .. tostring(err))
+		end
+	end)
+end
+
+-- Starts the periodic update loop and registers joining players
+function LeaderboardManager.Start(getActiveSessions: () -> {[number]: {score: number}})
+	-- Send the existing cached leaderboard immediately to any player upon joining
+	Players.PlayerAdded:Connect(function(player)
+		LeaderboardUpdate:FireClient(player, cachedLeaderboard)
+	end)
+
+	-- Initial load delay to let server stabilize
+	task.spawn(function()
+		task.wait(2)
+		LeaderboardManager.Refresh()
+	end)
+
+	-- Periodic update loop (refreshes every 60 seconds)
+	task.spawn(function()
+		while true do
+			task.wait(60)
+
+			-- Save scores for all active players
+			local sessions = getActiveSessions()
+			for userId, session in pairs(sessions) do
+				local player = Players:GetPlayerByUserId(userId)
+				if player then
+					LeaderboardManager.SaveScore(player, session.score)
+				end
+			end
+
+			-- Query and broadcast latest leaderboard standings
+			LeaderboardManager.Refresh()
+		end
+	end)
+end
+
+return LeaderboardManager

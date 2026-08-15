@@ -1,0 +1,47 @@
+{
+  "name": "autoclicker-void",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "ClickEvent": {
+        "$className": "RemoteEvent"
+      },
+      "PurchaseEvent": {
+        "$className": "RemoteEvent"
+      },
+      "ResetEvent": {
+        "$className": "RemoteEvent"
+      },
+      "SyncState": {
+        "$className": "RemoteEvent"
+      },
+      "LeaderboardUpdate": {
+        "$className": "RemoteEvent"
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      },
+      "Tests": {
+        "$path": "src/tests"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Gui": {
+          "$path": "src/client"
+        }
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Ambient": [0, 0, 0],
+        "OutdoorAmbient": [0, 0, 0]
+      }
+    }
+  }
+}
