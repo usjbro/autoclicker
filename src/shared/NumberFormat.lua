@@ -38,7 +38,13 @@ function NumberFormat.Format(n: number): string
 	end
 
 	if n < 1000 then
-		return trimNumber(math.floor(n + 0.5))
+		local rounded = math.floor(n + 0.5)
+		if rounded < 1000 then
+			return trimNumber(rounded)
+		end
+		-- Rounding pushed us up to 1000 (e.g. 999.6) -- fall through to the
+		-- tiered-suffix logic below instead of printing the raw "1000".
+		n = rounded
 	end
 
 	local tier = 0
