@@ -10,6 +10,7 @@ local DataManager = require(script.Parent:WaitForChild("DataManager"))
 local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManager"))
 local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseManager"))
 local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
+local SessionLock = require(script.Parent:WaitForChild("SessionLock"))
 
 local ClickEvent = ReplicatedStorage:WaitForChild("ClickEvent")
 local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
@@ -87,91 +88,111 @@ local function applyInPlace(session: GameLogic.Session, newValues: GameLogic.Ses
 	end
 end
 
+-- Every handler below that touches a player's session is routed through
+-- SessionLock, since several of these can yield on a DataStore call
+-- mid-operation (Save, in particular) -- without this, e.g. a Reset could
+-- zero a session's fields while PlayerRemoving's save for that same player
+-- is still in flight, or a disconnect could race a purchase.
+
 -- [SERVER] Handle Click
 ClickEvent.OnServerEvent:Connect(function(player)
-	local session = activeSessions[player.UserId]
-	if not session then return end
+	SessionLock.Run(player.UserId, function()
+		local session = activeSessions[player.UserId]
+		if not session then return end
 
-	session.score += GameLogic.CalculateClickGain(session)
-	session.totalClicks += 1
-	MovementSystem.ApplyEffectiveSpeed(player, session)
-	syncPlayer(player)
+		session.score += GameLogic.CalculateClickGain(session)
+		session.totalClicks += 1
+		MovementSystem.ApplyEffectiveSpeed(player, session)
+		syncPlayer(player)
+	end)
 end)
 
 -- [SERVER] Handle Purchase
 PurchaseEvent.OnServerEvent:Connect(function(player, upgradeId)
-	local session = activeSessions[player.UserId]
-	if not session then return end
+	SessionLock.Run(player.UserId, function()
+		local session = activeSessions[player.UserId]
+		if not session then return end
 
-	if typeof(upgradeId) ~= "string" then return end
-	local field = GameConstants.UPGRADE_FIELDS[upgradeId]
-	if not field then return end
+		if typeof(upgradeId) ~= "string" then return end
+		local field = GameConstants.UPGRADE_FIELDS[upgradeId]
+		if not field then return end
 
-	local cost = GameLogic.GetUpgradeCost(upgradeId)
-	if session.score >= cost then
-		session.score -= cost
-		session[field] += 1
-		syncPlayer(player)
-	end
+		local cost = GameLogic.GetUpgradeCost(upgradeId)
+		if session.score >= cost then
+			session.score -= cost
+			session[field] += 1
+			syncPlayer(player)
+		end
+	end)
 end)
 
 -- [SERVER] Handle Reset
 ResetEvent.OnServerEvent:Connect(function(player)
-	local session = activeSessions[player.UserId]
-	if not session then return end
+	SessionLock.Run(player.UserId, function()
+		local session = activeSessions[player.UserId]
+		if not session then return end
 
-	applyInPlace(session, GameLogic.ResetProgress(session))
-	syncPlayer(player)
+		applyInPlace(session, GameLogic.ResetProgress(session))
+		syncPlayer(player)
+	end)
 end)
 
 -- [SERVER] Handle Rebirth
 RebirthEvent.OnServerEvent:Connect(function(player)
-	local session = activeSessions[player.UserId]
-	if not session then return end
+	SessionLock.Run(player.UserId, function()
+		local session = activeSessions[player.UserId]
+		if not session then return end
 
-	if not GameLogic.CanRebirth(session) then return end
+		if not GameLogic.CanRebirth(session) then return end
 
-	applyInPlace(session, GameLogic.PerformRebirth(session))
-	syncPlayer(player)
+		applyInPlace(session, GameLogic.PerformRebirth(session))
+		syncPlayer(player)
+	end)
 end)
 
 -- [SERVER] Handle speed preference changes. The client only ever sends a
 -- preference (base speed on/off, slider percent) -- the actual WalkSpeed is
 -- always recomputed server-side via MovementSystem, never taken from the client.
 UpdateSpeedSettingsEvent.OnServerEvent:Connect(function(player, useBaseSpeed, speedSliderPercent)
-	local session = activeSessions[player.UserId]
-	if not session then return end
+	SessionLock.Run(player.UserId, function()
+		local session = activeSessions[player.UserId]
+		if not session then return end
 
-	if typeof(useBaseSpeed) == "boolean" then
-		session.useBaseSpeed = useBaseSpeed
-	end
+		if typeof(useBaseSpeed) == "boolean" then
+			session.useBaseSpeed = useBaseSpeed
+		end
 
-	if typeof(speedSliderPercent) == "number" and speedSliderPercent == speedSliderPercent then
-		session.speedSliderPercent = math.clamp(speedSliderPercent, 0, 100)
-	end
+		if typeof(speedSliderPercent) == "number" and speedSliderPercent == speedSliderPercent then
+			session.speedSliderPercent = math.clamp(speedSliderPercent, 0, 100)
+		end
 
-	MovementSystem.ApplyEffectiveSpeed(player, session)
-	syncPlayer(player)
+		MovementSystem.ApplyEffectiveSpeed(player, session)
+		syncPlayer(player)
+	end)
 end)
 
 -- Player Lifecycle
 Players.PlayerAdded:Connect(function(player)
 	local data = DataManager.Load(player)
-	activeSessions[player.UserId] = data
-	-- Covers the case where the character already spawned (default WalkSpeed)
-	-- before DataManager.Load finished; MovementSystem.Start's CharacterAdded
-	-- hook covers every subsequent (re)spawn.
-	MovementSystem.ApplyEffectiveSpeed(player, data)
-	syncPlayer(player)
+	SessionLock.Run(player.UserId, function()
+		activeSessions[player.UserId] = data
+		-- Covers the case where the character already spawned (default
+		-- WalkSpeed) before DataManager.Load finished; MovementSystem.Start's
+		-- CharacterAdded hook covers every subsequent (re)spawn.
+		MovementSystem.ApplyEffectiveSpeed(player, data)
+		syncPlayer(player)
+	end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	local session = activeSessions[player.UserId]
-	if session then
-		DataManager.Save(player, session)
-		LeaderboardManager.SaveScore(player, session.score)
-		activeSessions[player.UserId] = nil
-	end
+	SessionLock.Run(player.UserId, function()
+		local session = activeSessions[player.UserId]
+		if session then
+			DataManager.Save(player, session)
+			LeaderboardManager.SaveScore(player, session.score)
+			activeSessions[player.UserId] = nil
+		end
+	end)
 end)
 
 -- Game Loop (Auto-clickers)

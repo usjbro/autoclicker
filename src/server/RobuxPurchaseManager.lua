@@ -6,6 +6,7 @@ local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local GameConstants = require(Shared:WaitForChild("GameConstants"))
 local GameLogic = require(Shared:WaitForChild("GameLogic"))
 local DataManager = require(script.Parent:WaitForChild("DataManager"))
+local SessionLock = require(script.Parent:WaitForChild("SessionLock"))
 
 local RobuxPurchaseManager = {}
 
@@ -66,29 +67,10 @@ end
 local function unclaimReceipt(receiptId: string)
 	if not ReceiptStore then return end
 	local success, err = pcall(function()
-		ReceiptStore:SetAsync(receiptId, false)
+		ReceiptStore:RemoveAsync(receiptId)
 	end)
 	if not success then
 		warn("Failed to release claim on receipt " .. receiptId .. " after a failed grant: " .. tostring(err))
-	end
-end
-
--- Serializes grant+save per player: ProcessReceipt can be re-entered for a
--- second pending purchase while the first is still yielding on a DataStore
--- call, and both would otherwise read/mutate the same session table
--- concurrently (e.g. a failed save's rollback erasing a different,
--- already-succeeded purchase). Different players never block each other.
-local playerLocks: { [number]: boolean } = {}
-
-local function withPlayerLock(userId: number, fn: () -> ())
-	while playerLocks[userId] do
-		task.wait()
-	end
-	playerLocks[userId] = true
-	local ok, err = pcall(fn)
-	playerLocks[userId] = nil
-	if not ok then
-		error(err, 0)
 	end
 end
 
@@ -129,42 +111,51 @@ function RobuxPurchaseManager.Start(
 
 		local decision = Enum.ProductPurchaseDecision.NotProcessedYet
 
-		withPlayerLock(receiptInfo.PlayerId, function()
-			local session = getActiveSessions()[receiptInfo.PlayerId]
-			if not session then
-				unclaimReceipt(receiptInfo.PurchaseId)
-				return
-			end
+		-- Routed through the same SessionLock as every other session-mutating
+		-- handler in GameService.server.lua, so a Reset/Rebirth/disconnect-save
+		-- can never interleave with this grant on the same session table.
+		SessionLock.Run(receiptInfo.PlayerId, function()
+			-- Everything below is one critical section: any failure -- a
+			-- missing session, a failed save, or anything unexpected -- takes
+			-- the same single path that releases the receipt claim, so it can
+			-- never be left permanently "processed" with nothing granted.
+			local ok, err = pcall(function()
+				local session = getActiveSessions()[receiptInfo.PlayerId]
+				if not session then
+					error("no active session for player", 0)
+				end
 
-			-- Grant, then durably save immediately -- real money must not depend
-			-- on the player disconnecting naturally (GameService only saves on
-			-- PlayerRemoving). GameService's Reset/Rebirth handlers mutate this
-			-- same session table in place rather than replacing it, so this
-			-- reference stays valid even if a reset happens while Save yields.
-			local field = GameConstants.UPGRADE_FIELDS[upgradeId]
-			session[field] += 1
+				-- Grant, then durably save immediately -- real money must not
+				-- depend on the player disconnecting naturally.
+				local field = GameConstants.UPGRADE_FIELDS[upgradeId]
+				session[field] += 1
 
-			if not DataManager.IsAvailable() then
-				-- No DataStore access at all right now (e.g. Studio without API
-				-- access) -- demanding a successful save would mean Robux
-				-- purchases can never complete. Grant in-memory only, same
-				-- degrade-gracefully behavior the rest of the game already has.
+				if not DataManager.IsAvailable() then
+					-- No DataStore access at all right now (e.g. Studio without
+					-- API access) -- demanding a successful save would mean
+					-- Robux purchases can never complete. Grant in-memory only,
+					-- same degrade-gracefully behavior the rest of the game
+					-- already has.
+					syncPlayer(player)
+					decision = Enum.ProductPurchaseDecision.PurchaseGranted
+					return
+				end
+
+				local saveOk = DataManager.Save(player, session)
+				if not saveOk then
+					session[field] -= 1
+					error("failed to save purchase", 0)
+				end
+
 				syncPlayer(player)
 				decision = Enum.ProductPurchaseDecision.PurchaseGranted
-				return
-			end
+			end)
 
-			local saveOk = DataManager.Save(player, session)
-
-			if not saveOk then
-				session[field] -= 1
+			if not ok then
 				unclaimReceipt(receiptInfo.PurchaseId)
-				warn("Failed to save Robux purchase for " .. player.Name .. ", will retry: " .. tostring(receiptInfo.PurchaseId))
-				return
+				warn("Robux purchase grant failed for PurchaseId " .. receiptInfo.PurchaseId
+					.. ", will retry: " .. tostring(err))
 			end
-
-			syncPlayer(player)
-			decision = Enum.ProductPurchaseDecision.PurchaseGranted
 		end)
 
 		return decision
