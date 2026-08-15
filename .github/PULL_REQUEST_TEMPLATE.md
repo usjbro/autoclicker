@@ -4,16 +4,18 @@
 
 ## Area(s) touched
 
-- [ ] Browser version (`index.html`, `script.js`, `style.css`)
-- [ ] Roblox conversion (`src/`)
+- [ ] `src/shared/` (shared game logic)
+- [ ] `src/server/` (server-authoritative state)
+- [ ] `src/client/` (UI)
 - [ ] Other (docs, tooling, etc.)
 
 ## Testing
 
-<!-- How did you verify this? e.g. opened index.html and clicked through it,
-     ran `rojo serve` and tested in Studio, ran the TestEZ specs, etc. -->
+<!-- How did you verify this? e.g. ran `rojo serve` and tested in Studio,
+     ran the TestEZ specs, ran `lune run test/gameLogic.test.luau`, etc. -->
 
 ## Checklist
 
-- [ ] If the cost/idle-gain formula changed, both implementations were updated to match (see `CLAUDE.md`)
+- [ ] `lune run test/gameLogic.test.luau` passes
+- [ ] `rojo build default.project.json -o /tmp/check.rbxlx` succeeds
 - [ ] No unrelated files included (check `git status` before pushing)
