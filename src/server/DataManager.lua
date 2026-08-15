@@ -19,6 +19,15 @@ end
 
 local DataManager = {}
 
+-- Whether DataStore access exists at all (e.g. false in Studio without API
+-- access, or an unpublished place). Distinct from a single Save call
+-- failing: callers that require persistence to proceed (e.g. Robux
+-- purchases) need to tell "will never work right now" apart from "this one
+-- attempt failed, worth retrying."
+function DataManager.IsAvailable(): boolean
+	return PlayerDataStore ~= nil
+end
+
 local defaultData: GameLogic.Session = GameLogic.GetDefaultSession()
 
 -- `or` would incorrectly override a legitimately-saved `false` (e.g.
@@ -67,8 +76,10 @@ function DataManager.LoadRaw(userId: number): GameLogic.Session?
 	return loadByUserId(userId)
 end
 
-function DataManager.Save(player: Player, data: GameLogic.Session)
-	if not PlayerDataStore then return end
+-- Returns whether the save actually succeeded (callers that only fire-and-forget,
+-- like a save on disconnect, can ignore the return value).
+function DataManager.Save(player: Player, data: GameLogic.Session): boolean
+	if not PlayerDataStore then return false end
 
 	local success, err = pcall(function()
 		PlayerDataStore:SetAsync(tostring(player.UserId), data)
@@ -77,6 +88,8 @@ function DataManager.Save(player: Player, data: GameLogic.Session)
 	if not success then
 		warn("Failed to save data for player " .. player.Name .. ": " .. tostring(err))
 	end
+
+	return success
 end
 
 return DataManager
