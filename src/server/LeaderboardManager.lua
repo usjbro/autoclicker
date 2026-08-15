@@ -175,9 +175,14 @@ function LeaderboardManager.Start(getActiveSessions: () -> {[number]: GameLogic.
 		while true do
 			task.wait(60)
 
-			-- Save scores for all active players
-			local sessions = getActiveSessions()
-			for userId, session in pairs(sessions) do
+			-- Save scores for all active players. A bare field read here is
+			-- always safe unlocked: nothing in this codebase mutates a
+			-- session's score field across a yield (every multi-step
+			-- read-modify-write, e.g. the Robux grant, holds SessionLock for
+			-- its own duration), so this can never observe a torn write. The
+			-- actual DataStore write happens inside SaveScore's own detached
+			-- task.spawn, which a session lock here wouldn't cover anyway.
+			for userId, session in pairs(getActiveSessions()) do
 				local player = Players:GetPlayerByUserId(userId)
 				if player then
 					LeaderboardManager.SaveScore(player, session.score)
