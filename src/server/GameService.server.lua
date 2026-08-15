@@ -113,7 +113,14 @@ ClickEvent.OnServerEvent:Connect(function(player)
 	withSession(player, function(session)
 		session.score += GameLogic.CalculateClickGain(session)
 		session.totalClicks += 1
-		MovementSystem.ApplyEffectiveSpeed(player, session)
+		-- Only click-based speed mode can actually move the needle here --
+		-- in useBaseSpeed mode, CalculateEffectiveSpeed always returns the
+		-- same constant regardless of totalClicks, so reapplying it on every
+		-- click would just be redundant WalkSpeed replication on the hottest
+		-- input path in the game.
+		if not session.useBaseSpeed then
+			MovementSystem.ApplyEffectiveSpeed(player, session)
+		end
 		syncPlayer(player)
 	end)
 end)
