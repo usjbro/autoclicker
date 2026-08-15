@@ -1,6 +1,5 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TestEZ = nil -- This would normally be a reference to the TestEZ library
 
 -- Bootstrap TestEZ if it exists in the environment
 task.defer(function()
