@@ -138,6 +138,10 @@ end)
 ResetEvent.OnServerEvent:Connect(function(player)
 	withSession(player, function(session)
 		applyInPlace(session, GameLogic.ResetProgress(session))
+		-- Force the leaderboard entry to reflect the wipe immediately --
+		-- otherwise a stale pre-reset score can linger until the player
+		-- earns points again (see issue #13).
+		LeaderboardManager.SaveScore(player, session.score, true)
 		syncPlayer(player)
 	end)
 end)
@@ -148,6 +152,10 @@ RebirthEvent.OnServerEvent:Connect(function(player)
 		if not GameLogic.CanRebirth(session) then return end
 
 		applyInPlace(session, GameLogic.PerformRebirth(session))
+		-- Force the leaderboard entry to reflect the wipe immediately --
+		-- otherwise a stale pre-rebirth score can linger until the player
+		-- earns points again (see issue #13).
+		LeaderboardManager.SaveScore(player, session.score, true)
 		syncPlayer(player)
 	end)
 end)
