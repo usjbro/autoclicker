@@ -342,7 +342,14 @@ local function createPopupWindow(name: string, title: string): (Frame, Scrolling
 	content.ScrollingDirection = Enum.ScrollingDirection.Y
 	content.ScrollBarThickness = 6
 	content.ScrollBarImageColor3 = COLOR_TEXT_DIM
-	content.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
+	-- ScrollingFrame.AutomaticCanvasSize is typed as Enum.AutomaticSize (the
+	-- same enum GuiObject.AutomaticSize uses) -- there is no separate
+	-- Enum.AutomaticCanvasSize class. Indexing it throws immediately, which
+	-- (since this runs at script load, before any click handler is connected
+	-- or SyncState.OnClientEvent is wired up) took down the entire GUI: every
+	-- button rendered but did nothing, and SyncState's queue backed up with
+	-- nothing consuming it.
+	content.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	content.Parent = window
 	addListLayout(content, 8)
 
