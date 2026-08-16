@@ -84,22 +84,26 @@ local function createStaircase(
 	width: number
 ): Vector3 -- returns the landing point (top of the final step)
 	for i = 1, steps do
-		local topY = i * stepRise
+		local stepHeight = i * stepRise
 		local offset = sign * (stepRun * i - stepRun / 2)
 		local centerX = if axis == "X" then origin.X + offset else origin.X
 		local centerZ = if axis == "Z" then origin.Z + offset else origin.Z
 		local sizeX = if axis == "X" then stepRun else width
 		local sizeZ = if axis == "Z" then stepRun else width
+		-- Spans from origin.Y (where the staircase starts, e.g. a
+		-- platform's surface) up to origin.Y + stepHeight -- not from world
+		-- y=0, which would leave the whole staircase floating disconnected
+		-- below wherever origin.Y actually is.
 		newPart(folder, name .. i, {
-			Size = Vector3.new(sizeX, topY, sizeZ),
-			CFrame = CFrame.new(centerX, topY / 2, centerZ),
+			Size = Vector3.new(sizeX, stepHeight, sizeZ),
+			CFrame = CFrame.new(centerX, origin.Y + stepHeight / 2, centerZ),
 			Color = if i % 2 == 0 then PANEL else DARK,
 		})
 	end
 	local finalOffset = sign * (stepRun * steps)
 	local landX = if axis == "X" then origin.X + finalOffset else origin.X
 	local landZ = if axis == "Z" then origin.Z + finalOffset else origin.Z
-	return Vector3.new(landX, steps * stepRise, landZ)
+	return Vector3.new(landX, origin.Y + steps * stepRise, landZ)
 end
 
 -- A flat elevated platform. `topY` is the walkable surface height; the part
@@ -152,7 +156,10 @@ local function createPillar(folder: Folder, name: string, groundPos: Vector3, he
 end
 
 -- A doorway-style arch: two pillars plus an accent-lit lintel beam spanning
--- them. `axis` is the direction the arch's opening faces along.
+-- them. `axis` is the direction of travel through the opening (i.e. the
+-- direction the connecting ramp runs along) -- pillars flank PERPENDICULAR
+-- to it, not along it. Getting this backwards silently plants a pillar on
+-- the path's own centerline instead of beside it.
 local function createArch(folder: Folder, name: string, centerGround: Vector3, axis: "X" | "Z", span: number, height: number)
 	local half = span / 2
 	local pillarThickness = 4
@@ -209,7 +216,7 @@ function MapBuilder.Build(): (boolean, string?)
 		-- === North zone: ramp up to Platform A, then stairs further up to
 		-- the higher Platform A2. Demonstrates both connector types in one
 		-- continuous path. ===
-		createArch(folder, "NorthGate", Vector3.new(0, 0, -28), "X", 28, 20)
+		createArch(folder, "NorthGate", Vector3.new(0, 0, -28), "Z", 28, 20)
 		createRamp(folder, "NorthRamp", Vector3.new(0, 0, -35), Vector3.new(0, 20, -95), 26, 3)
 		createPlatform(folder, "PlatformA", 0, 20, -130, 70, 3, 70)
 
@@ -230,7 +237,7 @@ function MapBuilder.Build(): (boolean, string?)
 
 		-- === West zone: a wider, taller ramp to Platform C, framed by an
 		-- entrance arch, for a third distinct elevated area. ===
-		createArch(folder, "WestGate", Vector3.new(-28, 0, 0), "Z", 28, 22)
+		createArch(folder, "WestGate", Vector3.new(-28, 0, 0), "X", 28, 22)
 		createRamp(folder, "WestRamp", Vector3.new(-35, 0, 0), Vector3.new(-150, 26, 0), 28, 3)
 		createPlatform(folder, "PlatformC", -180, 26, 0, 60, 3, 60)
 
