@@ -11,6 +11,7 @@ local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManage
 local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseManager"))
 local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
 local SessionLock = require(script.Parent:WaitForChild("SessionLock"))
+local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
 
 local ClickEvent = ReplicatedStorage:WaitForChild("ClickEvent")
 local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
@@ -18,9 +19,6 @@ local ResetEvent = ReplicatedStorage:WaitForChild("ResetEvent")
 local RebirthEvent = ReplicatedStorage:WaitForChild("RebirthEvent")
 local UpdateSpeedSettingsEvent = ReplicatedStorage:WaitForChild("UpdateSpeedSettingsEvent")
 local SyncState = ReplicatedStorage:WaitForChild("SyncState")
-
--- State storage for active players
-local activeSessions = {}
 
 -- Environment: a large black box encloses the whole play space so the
 -- backdrop is solid black instead of Roblox's default sky, with a floor and
@@ -71,46 +69,37 @@ if not voidBoxOk then
 end
 
 local function syncPlayer(player: Player)
-	local session = activeSessions[player.UserId]
+	local session = SessionStore.Peek(player.UserId)
 	if session then
 		SyncState:FireClient(player, session)
 	end
 end
 
 -- Copies every field from newValues into session in place, rather than
--- replacing activeSessions[userId] with a new table outright. Other code
--- (e.g. RobuxPurchaseManager) can hold a reference to a player's session
--- across a yield; replacing the table wholesale would silently orphan that
--- reference from a concurrent Reset/Rebirth.
+-- replacing the stored session with a new table outright. Other code (e.g.
+-- RobuxPurchaseManager) can hold a reference to a player's session across a
+-- yield; replacing the table wholesale would silently orphan that reference
+-- from a concurrent Reset/Rebirth.
 local function applyInPlace(session: GameLogic.Session, newValues: GameLogic.Session)
 	for key, value in pairs(newValues) do
 		(session :: any)[key] = value
 	end
 end
 
--- Every handler below that touches a player's session is routed through
--- SessionLock, since several of these can yield on a DataStore call
--- mid-operation (Save, in particular) -- without this, e.g. a Reset could
--- zero a session's fields while PlayerRemoving's save for that same player
--- is still in flight, or a disconnect could race a purchase. This must cover
--- every reader/writer of activeSessions, not just the RemoteEvent handlers --
--- the idle-gain tick loop and PlayerAdded/PlayerRemoving below go through it
--- too.
-
--- Acquires the lock, looks up the session, and calls fn(session) only if it
--- exists -- the "lock + lookup + guard" sequence every handler below needs.
-local function withSession(player: Player, fn: (GameLogic.Session) -> ())
-	SessionLock.Run(player.UserId, function()
-		local session = activeSessions[player.UserId]
-		if session then
-			fn(session)
-		end
-	end)
-end
+-- Every handler below that touches a player's session goes through
+-- SessionStore (which itself routes through SessionLock), since several of
+-- these can yield on a DataStore call mid-operation (Save, in particular) --
+-- without this, e.g. a Reset could zero a session's fields while
+-- PlayerRemoving's save for that same player is still in flight, or a
+-- disconnect could race a purchase. This must cover every reader/writer of
+-- session state, not just the RemoteEvent handlers -- the idle-gain tick
+-- loop and PlayerAdded/PlayerRemoving below go through SessionStore too, and
+-- activeSessions itself is now private to SessionStore.lua so nothing here
+-- can touch it directly even by accident.
 
 -- [SERVER] Handle Click
 ClickEvent.OnServerEvent:Connect(function(player)
-	withSession(player, function(session)
+	SessionStore.With(player.UserId, function(session)
 		session.score += GameLogic.CalculateClickGain(session)
 		session.totalClicks += 1
 		MovementSystem.ApplyEffectiveSpeed(player, session)
