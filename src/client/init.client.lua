@@ -289,6 +289,13 @@ local UPGRADE_DISPLAY = {
 
 local shopRows = {}
 
+-- Drives both the paired pts/Robux buttons in each upgrade row and the
+-- Rebirth card's single button below, so the latter is always exactly as
+-- wide as the row above it instead of relying on scale-based sizing to
+-- happen to match a separately-computed row width.
+local UPGRADE_BUTTON_WIDTH = 150
+local UPGRADE_BUTTON_GAP = 8
+
 for i, upgrade in ipairs(UPGRADE_DISPLAY) do
 	local upgradeConstants = GameConstants.UPGRADES[upgrade.Id]
 	local cost = GameLogic.GetUpgradeCost(upgrade.Id)
@@ -315,15 +322,15 @@ for i, upgrade in ipairs(UPGRADE_DISPLAY) do
 	buttonsRow.BackgroundTransparency = 1
 	buttonsRow.LayoutOrder = 4
 	buttonsRow.Parent = card
-	addListLayout(buttonsRow, 8, Enum.HorizontalAlignment.Left, Enum.FillDirection.Horizontal)
+	addListLayout(buttonsRow, UPGRADE_BUTTON_GAP, Enum.HorizontalAlignment.Left, Enum.FillDirection.Horizontal)
 
-	local ptsButton = makeButton(buttonsRow, ("Upgrade -- %s pts"):format(NumberFormat.Format(cost)), UDim2.new(0, 150, 0, 36), COLOR_ACCENT)
+	local ptsButton = makeButton(buttonsRow, ("Upgrade -- %s pts"):format(NumberFormat.Format(cost)), UDim2.new(0, UPGRADE_BUTTON_WIDTH, 0, 36), COLOR_ACCENT)
 
 	local hasDevProduct = upgradeConstants.DevProductId ~= 0
 	local robuxButton = makeButton(
 		buttonsRow,
 		if hasDevProduct then "R$ " .. upgradeConstants.RobuxCost else "Coming soon",
-		UDim2.new(0, 150, 0, 36),
+		UDim2.new(0, UPGRADE_BUTTON_WIDTH, 0, 36),
 		if hasDevProduct then COLOR_ROBUX else COLOR_ACCENT_DISABLED
 	)
 	robuxButton.AutoButtonColor = hasDevProduct
@@ -363,7 +370,17 @@ addPadding(rebirthCard, 10)
 makeLabel(rebirthCard, ("Rebirth (+%d%% permanent income)"):format(GameConstants.REBIRTH.Bonus * 100), 16, COLOR_TEXT, 1, true)
 makeLabel(rebirthCard, "Resets score and upgrades for a permanent bonus.", 13, COLOR_TEXT_DIM, 2)
 
-local rebirthButton = makeButton(rebirthCard, "Rebirth -- requires " .. NumberFormat.Format(GameConstants.REBIRTH.Threshold) .. " score", UDim2.new(1, 0, 0, 36), COLOR_ACCENT_DISABLED, 3)
+-- Matches the exact width of the two-button rows above (UPGRADE_BUTTON_WIDTH
+-- * 2 + UPGRADE_BUTTON_GAP), rather than UDim2.new(1, 0, ...), which only
+-- matches the row width if it happens to resolve to the same scale-relative
+-- width -- explicit and guaranteed to align is simpler than relying on that.
+local rebirthButton = makeButton(
+	rebirthCard,
+	"Rebirth -- requires " .. NumberFormat.Format(GameConstants.REBIRTH.Threshold) .. " score",
+	UDim2.new(0, UPGRADE_BUTTON_WIDTH * 2 + UPGRADE_BUTTON_GAP, 0, 36),
+	COLOR_ACCENT_DISABLED,
+	3
+)
 rebirthButton.AutoButtonColor = false
 
 rebirthButton.MouseButton1Click:Connect(function()
