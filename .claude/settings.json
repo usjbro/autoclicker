@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "agent",
+            "if": "Bash(git commit *)",
+            "prompt": "A git commit was just made in this repo. Run `git show --stat HEAD` and `git diff HEAD~1 HEAD` (fall back to `git show HEAD` if there is no parent commit) to see what changed. Review the diff for correctness bugs and reuse/simplification/efficiency issues, the same way /code-review would at medium effort. Report findings concisely as a short message to the user, ranked most-severe first. If there are no issues, say so in one line. Do not modify any files.",
+            "timeout": 180,
+            "statusMessage": "Reviewing last commit..."
+          }
+        ]
+      }
+    ]
+  }
+}
