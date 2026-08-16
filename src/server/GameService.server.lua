@@ -103,9 +103,9 @@ ClickEvent.OnServerEvent:Connect(function(player)
 		session.totalClicks += 1
 		-- Only click-based speed mode can actually move the needle here --
 		-- in useBaseSpeed mode, CalculateEffectiveSpeed always returns the
-		-- same constant regardless of totalClicks, so reapplying it on every
-		-- click would just be redundant WalkSpeed replication on the hottest
-		-- input path in the game.
+		-- same constant regardless of score, so reapplying it on every click
+		-- would just be redundant WalkSpeed replication on the hottest input
+		-- path in the game.
 		if not session.useBaseSpeed then
 			MovementSystem.ApplyEffectiveSpeed(player, session)
 		end
@@ -124,6 +124,13 @@ PurchaseEvent.OnServerEvent:Connect(function(player, upgradeId)
 		if session.score >= cost then
 			session.score -= cost
 			session[field] += 1
+			-- Speed is score-based now (see SpeedCalculator), so spending
+			-- points here can lower it just as earning points raises it --
+			-- keep WalkSpeed truthful immediately rather than waiting for
+			-- the player's next click.
+			if not session.useBaseSpeed then
+				MovementSystem.ApplyEffectiveSpeed(player, session)
+			end
 			syncPlayer(player)
 		end
 	end)
@@ -145,6 +152,20 @@ ResetEvent.OnServerEvent:Connect(function(player)
 			-- earns points again (see issue #13).
 			LeaderboardManager.SaveScore(player, session.score, true)
 		end
+		-- Save durably right away rather than only relying on the eventual
+		-- PlayerRemoving save -- a player who resets and then disconnects
+		-- uncleanly (a crashed server, an abrupt Studio Stop) shouldn't get
+		-- their old, pre-reset score back on next load. Mirrors the same
+		-- "don't depend on a natural disconnect" durability RobuxPurchaseManager
+		-- already applies to purchases.
+		if DataManager.IsAvailable() then
+			DataManager.Save(player, session)
+		end
+		-- Score reset to 0 -> speed (now score-based) should drop back to
+		-- base immediately too, not just on the player's next click.
+		if not session.useBaseSpeed then
+			MovementSystem.ApplyEffectiveSpeed(player, session)
+		end
 		syncPlayer(player)
 	end)
 end)
@@ -159,6 +180,17 @@ RebirthEvent.OnServerEvent:Connect(function(player)
 		-- otherwise a stale pre-rebirth score can linger until the player
 		-- earns points again (see issue #13).
 		LeaderboardManager.SaveScore(player, session.score, true)
+		-- Save durably right away -- same reasoning as ResetEvent above: a
+		-- rebirth (and the permanent bonus it grants) shouldn't be lost to
+		-- an unclean disconnect before the next natural save.
+		if DataManager.IsAvailable() then
+			DataManager.Save(player, session)
+		end
+		-- Score reset to 0 -> speed (now score-based) should drop back to
+		-- base immediately too, not just on the player's next click.
+		if not session.useBaseSpeed then
+			MovementSystem.ApplyEffectiveSpeed(player, session)
+		end
 		syncPlayer(player)
 	end)
 end)
@@ -231,10 +263,19 @@ task.spawn(function()
 
 					-- Credit the session unconditionally (matches the
 					-- pre-lock behavior) even if the Player object briefly
-					-- doesn't resolve; only the client sync needs a player.
+					-- doesn't resolve; only the client sync (and WalkSpeed,
+					-- which needs a Character) needs a player.
 					session.score += GameLogic.CalculateIdleGain(session, deltaTime)
 					local player = Players:GetPlayerByUserId(userId)
 					if player then
+						-- Speed is score-based now, and idle auto-clickers
+						-- grow score every tick with no click required --
+						-- without this, a score-based-speed player sitting
+						-- idle would never see WalkSpeed catch up to their
+						-- growing score until they happened to click again.
+						if not session.useBaseSpeed then
+							MovementSystem.ApplyEffectiveSpeed(player, session)
+						end
 						syncPlayer(player)
 					end
 				end)
