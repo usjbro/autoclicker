@@ -85,11 +85,8 @@ end
 --     compute WalkSpeed; doesn't mutate the session, so routing it through
 --     With would only add lock contention (e.g. waiting on an in-flight
 --     Robux-purchase save) with no correctness benefit.
---   - RobuxPurchaseManager's grant flow: already runs inside its OWN
---     SessionLock.Run(userId, ...) for reasons specific to its receipt-claim
---     bookkeeping (see RobuxPurchaseManager.lua), so calling SessionStore.With
---     there would be a reentrant, deadlocking double-lock; Peek gives it the
---     table access it needs without that.
+-- (RobuxPurchaseManager's grant flow uses With, not Peek -- its receipt-claim
+-- bookkeeping needs the lock, the same as any other read-modify-write.)
 -- Do NOT use this for anything that reads a value and later writes back
 -- based on it.
 function SessionStore.Peek(userId: number): GameLogic.Session?
