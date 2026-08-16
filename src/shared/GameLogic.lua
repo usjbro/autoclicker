@@ -38,9 +38,11 @@ function GameLogic.GetDefaultSession(): Session
 	}
 end
 
--- Zeroes score + all upgrade counts, but preserves totalClicks (movement-speed
--- progression), rebirthCount, and speed preferences -- a progress reset
--- shouldn't erase those. Used by both the Reset and Rebirth handlers.
+-- Zeroes score + all upgrade counts, but preserves totalClicks (a lifetime
+-- achievement stat, not tied to movement speed -- see SpeedCalculator, which
+-- is score-based and so resets to base speed along with score), rebirthCount,
+-- and speed preferences -- a progress reset shouldn't erase those. Used by
+-- both the Reset and Rebirth handlers.
 function GameLogic.ResetProgress(session: Session): Session
 	local reset = GameLogic.GetDefaultSession()
 	reset.rebirthCount = session.rebirthCount

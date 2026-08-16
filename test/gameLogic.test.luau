@@ -208,15 +208,15 @@ end)
 
 print("SpeedCalculator")
 
-test("CalculateMaxSpeed equals base speed at 0 clicks", function()
-	assertEqual(SpeedCalculator.CalculateMaxSpeed(0), SpeedCalculator.BASE_WALK_SPEED, "0 clicks")
+test("CalculateMaxSpeed equals base speed at 0 score", function()
+	assertEqual(SpeedCalculator.CalculateMaxSpeed(0), SpeedCalculator.BASE_WALK_SPEED, "0 score")
 end)
 
-test("CalculateMaxSpeed increases with clicks but caps at a bounded value", function()
+test("CalculateMaxSpeed increases with score but caps at a bounded value", function()
 	local low = SpeedCalculator.CalculateMaxSpeed(100)
 	local high = SpeedCalculator.CalculateMaxSpeed(100000)
 	if not (low > SpeedCalculator.BASE_WALK_SPEED and high > low) then
-		error("expected max speed to increase with clicks")
+		error("expected max speed to increase with score")
 	end
 	if high > SpeedCalculator.BASE_WALK_SPEED + 200 then
 		error("max speed is not bounded -- got " .. tostring(high))
@@ -224,20 +224,20 @@ test("CalculateMaxSpeed increases with clicks but caps at a bounded value", func
 end)
 
 test("CalculateMaxSpeed never goes negative or NaN for invalid input", function()
-	assertEqual(SpeedCalculator.CalculateMaxSpeed(-50), SpeedCalculator.BASE_WALK_SPEED, "negative clicks clamps to base")
-	assertEqual(SpeedCalculator.CalculateMaxSpeed(0 / 0), SpeedCalculator.BASE_WALK_SPEED, "NaN clicks clamps to base")
+	assertEqual(SpeedCalculator.CalculateMaxSpeed(-50), SpeedCalculator.BASE_WALK_SPEED, "negative score clamps to base")
+	assertEqual(SpeedCalculator.CalculateMaxSpeed(0 / 0), SpeedCalculator.BASE_WALK_SPEED, "NaN score clamps to base")
 end)
 
-test("CalculateEffectiveSpeed returns base speed when useBaseSpeed is true, regardless of clicks/slider", function()
-	local speed = SpeedCalculator.CalculateEffectiveSpeed({ totalClicks = 100000, useBaseSpeed = true, speedSliderPercent = 100 })
+test("CalculateEffectiveSpeed returns base speed when useBaseSpeed is true, regardless of score/slider", function()
+	local speed = SpeedCalculator.CalculateEffectiveSpeed({ score = 100000, useBaseSpeed = true, speedSliderPercent = 100 })
 	assertEqual(speed, SpeedCalculator.BASE_WALK_SPEED, "base speed override")
 end)
 
 test("CalculateEffectiveSpeed interpolates between base and max by the slider percent", function()
 	local maxSpeed = SpeedCalculator.CalculateMaxSpeed(2000)
-	local atZero = SpeedCalculator.CalculateEffectiveSpeed({ totalClicks = 2000, useBaseSpeed = false, speedSliderPercent = 0 })
-	local atHalf = SpeedCalculator.CalculateEffectiveSpeed({ totalClicks = 2000, useBaseSpeed = false, speedSliderPercent = 50 })
-	local atFull = SpeedCalculator.CalculateEffectiveSpeed({ totalClicks = 2000, useBaseSpeed = false, speedSliderPercent = 100 })
+	local atZero = SpeedCalculator.CalculateEffectiveSpeed({ score = 2000, useBaseSpeed = false, speedSliderPercent = 0 })
+	local atHalf = SpeedCalculator.CalculateEffectiveSpeed({ score = 2000, useBaseSpeed = false, speedSliderPercent = 50 })
+	local atFull = SpeedCalculator.CalculateEffectiveSpeed({ score = 2000, useBaseSpeed = false, speedSliderPercent = 100 })
 
 	assertEqual(atZero, SpeedCalculator.BASE_WALK_SPEED, "0% slider")
 	assertNear(atHalf, (SpeedCalculator.BASE_WALK_SPEED + maxSpeed) / 2, 1e-9, "50% slider")
@@ -246,7 +246,7 @@ end)
 
 test("CalculateEffectiveSpeed never exceeds the calculated max speed even with an out-of-range slider", function()
 	local maxSpeed = SpeedCalculator.CalculateMaxSpeed(2000)
-	local speed = SpeedCalculator.CalculateEffectiveSpeed({ totalClicks = 2000, useBaseSpeed = false, speedSliderPercent = 99999 })
+	local speed = SpeedCalculator.CalculateEffectiveSpeed({ score = 2000, useBaseSpeed = false, speedSliderPercent = 99999 })
 	if speed > maxSpeed then
 		error("effective speed exceeded max speed: " .. tostring(speed) .. " > " .. tostring(maxSpeed))
 	end

@@ -11,6 +11,7 @@ local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManage
 local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseManager"))
 local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
 local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
+local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 
 local ClickEvent = ReplicatedStorage:WaitForChild("ClickEvent")
 local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
@@ -67,11 +68,34 @@ if not voidBoxOk then
 	warn("Failed to create void environment: " .. tostring(voidBoxErr))
 end
 
+-- Explorable map (platforms/ramps/stairs/decoration) for Movement mode --
+-- built right after the void environment succeeds, still before any Player
+-- connections below, so a joining player can never spawn before the map
+-- exists. A failure here is likewise non-fatal to the rest of the gameplay
+-- wiring; see MapBuilder.lua.
+local mapOk, mapErr = MapBuilder.Build()
+if not mapOk then
+	warn("Failed to build map: " .. tostring(mapErr))
+end
+
+-- Also reapplies WalkSpeed here (rather than duplicating the same check at
+-- every score-mutating call site below) since every one of those sites
+-- already calls syncPlayer right after mutating score -- centralizing this
+-- makes it structurally impossible for a future handler to forget it, rather
+-- than relying on every new score-mutating handler remembering to repeat the
+-- same "if not useBaseSpeed" block. Only click/score-based speed mode can
+-- actually move the needle here -- in useBaseSpeed mode, CalculateEffectiveSpeed
+-- always returns the same constant regardless of score, so this is a no-op
+-- there (matches the redundant-replication optimization from issue #9).
 local function syncPlayer(player: Player)
 	local session = SessionStore.Peek(player.UserId)
-	if session then
-		SyncState:FireClient(player, session)
+	if not session then return end
+
+	if not session.useBaseSpeed then
+		MovementSystem.ApplyEffectiveSpeed(player, session)
 	end
+
+	SyncState:FireClient(player, session)
 end
 
 -- Copies every field from newValues into session in place, rather than
@@ -101,14 +125,6 @@ ClickEvent.OnServerEvent:Connect(function(player)
 	SessionStore.With(player.UserId, function(session)
 		session.score += GameLogic.CalculateClickGain(session)
 		session.totalClicks += 1
-		-- Only click-based speed mode can actually move the needle here --
-		-- in useBaseSpeed mode, CalculateEffectiveSpeed always returns the
-		-- same constant regardless of totalClicks, so reapplying it on every
-		-- click would just be redundant WalkSpeed replication on the hottest
-		-- input path in the game.
-		if not session.useBaseSpeed then
-			MovementSystem.ApplyEffectiveSpeed(player, session)
-		end
 		syncPlayer(player)
 	end)
 end)
@@ -145,7 +161,21 @@ ResetEvent.OnServerEvent:Connect(function(player)
 			-- earns points again (see issue #13).
 			LeaderboardManager.SaveScore(player, session.score, true)
 		end
+		-- Sync (score/WalkSpeed reset, via syncPlayer) before the durable
+		-- save below: DataManager.Save is a direct (non-task.spawn'd) yield
+		-- that can take seconds under DataStore write throttling, and unlike
+		-- RobuxPurchaseManager's grant flow, nothing here needs to roll back
+		-- on a save failure -- so there's no reason to make the player wait
+		-- for it before seeing their reset take effect.
 		syncPlayer(player)
+		-- Save durably right away rather than only relying on the eventual
+		-- PlayerRemoving save -- a player who resets and then disconnects
+		-- uncleanly (a crashed server, an abrupt Studio Stop) shouldn't get
+		-- their old, pre-reset score back on next load. Mirrors the same
+		-- "don't depend on a natural disconnect" durability RobuxPurchaseManager
+		-- already applies to purchases. DataManager.Save already no-ops if
+		-- no DataStore is available, so no separate guard is needed here.
+		DataManager.Save(player, session)
 	end)
 end)
 
@@ -159,7 +189,12 @@ RebirthEvent.OnServerEvent:Connect(function(player)
 		-- otherwise a stale pre-rebirth score can linger until the player
 		-- earns points again (see issue #13).
 		LeaderboardManager.SaveScore(player, session.score, true)
+		-- Sync before the durable save -- same reasoning as ResetEvent above.
 		syncPlayer(player)
+		-- Save durably right away -- same reasoning as ResetEvent above: a
+		-- rebirth (and the permanent bonus it grants) shouldn't be lost to
+		-- an unclean disconnect before the next natural save.
+		DataManager.Save(player, session)
 	end)
 end)
 
@@ -196,7 +231,15 @@ Players.PlayerAdded:Connect(function(player)
 	end, function(data)
 		-- Covers the case where the character already spawned (default
 		-- WalkSpeed) before DataManager.Load finished; MovementSystem.Start's
-		-- CharacterAdded hook covers every subsequent (re)spawn.
+		-- CharacterAdded hook covers every subsequent (re)spawn. Deliberately
+		-- kept unconditional (unlike the other handlers' now-centralized,
+		-- useBaseSpeed-gated reapply inside syncPlayer below) -- if
+		-- CharacterAdded fired before the session existed, its own hook
+		-- silently no-ops, so this is the only thing that can correct
+		-- WalkSpeed for a useBaseSpeed=true joiner who hits that race. The
+		-- overlap with syncPlayer's reapply for a useBaseSpeed=false joiner
+		-- is a harmless one-time redundant write on join, not a hot-path
+		-- concern worth restructuring around.
 		MovementSystem.ApplyEffectiveSpeed(player, data)
 		syncPlayer(player)
 	end)
