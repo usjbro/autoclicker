@@ -6,8 +6,11 @@
 local SpeedCalculator = {}
 
 SpeedCalculator.BASE_WALK_SPEED = 16 -- Roblox's own default Humanoid.WalkSpeed
-local SPEED_PER_CLICK = 0.05
-local CLICK_CAP = 2000 -- max speed caps at BASE_WALK_SPEED + CLICK_CAP * SPEED_PER_CLICK (=116)
+local SPEED_PER_SCORE = 0.01
+-- Deliberately matches GameConstants.REBIRTH.Threshold (not imported, to keep
+-- this module dependency-free/independently testable) -- reaching rebirth
+-- eligibility also means reaching max speed, a legible milestone to aim for.
+local SCORE_CAP = 10000 -- max speed caps at BASE_WALK_SPEED + SCORE_CAP * SPEED_PER_SCORE (=116)
 
 local function clamp(value: number, low: number, high: number): number
 	if value ~= value then -- NaN
@@ -22,14 +25,18 @@ local function clamp(value: number, low: number, high: number): number
 	return value
 end
 
--- The player's maximum possible movement speed, based on lifetime clicks.
-function SpeedCalculator.CalculateMaxSpeed(totalClicks: number): number
-	local clicks = clamp(totalClicks, 0, CLICK_CAP)
-	return SpeedCalculator.BASE_WALK_SPEED + clicks * SPEED_PER_CLICK
+-- The player's maximum possible movement speed, based on their current
+-- score -- deliberately current (not lifetime-earned), so speed rises and
+-- falls with it: spending on upgrades or a Reset/Rebirth wiping score back
+-- to 0 brings speed back down too, rather than being a one-way permanent
+-- stat like totalClicks used to be.
+function SpeedCalculator.CalculateMaxSpeed(score: number): number
+	local clampedScore = clamp(score, 0, SCORE_CAP)
+	return SpeedCalculator.BASE_WALK_SPEED + clampedScore * SPEED_PER_SCORE
 end
 
 export type SpeedSettings = {
-	totalClicks: number,
+	score: number,
 	useBaseSpeed: boolean,
 	speedSliderPercent: number,
 }
@@ -41,7 +48,7 @@ function SpeedCalculator.CalculateEffectiveSpeed(session: SpeedSettings): number
 		return SpeedCalculator.BASE_WALK_SPEED
 	end
 
-	local maxSpeed = SpeedCalculator.CalculateMaxSpeed(session.totalClicks)
+	local maxSpeed = SpeedCalculator.CalculateMaxSpeed(session.score)
 	local percent = clamp(session.speedSliderPercent, 0, 100)
 	return SpeedCalculator.BASE_WALK_SPEED + (maxSpeed - SpeedCalculator.BASE_WALK_SPEED) * (percent / 100)
 end

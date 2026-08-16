@@ -407,7 +407,7 @@ speedModeRow.Parent = settingsContent
 addListLayout(speedModeRow, 8, Enum.HorizontalAlignment.Left, Enum.FillDirection.Horizontal)
 
 local normalSpeedButton = makeButton(speedModeRow, "Normal Speed", UDim2.new(0, 150, 0, 40), COLOR_ACCENT)
-local clickBasedSpeedButton = makeButton(speedModeRow, "Click-Based Speed", UDim2.new(0, 150, 0, 40), COLOR_PANEL)
+local scoreBasedSpeedButton = makeButton(speedModeRow, "Score-Based Speed", UDim2.new(0, 150, 0, 40), COLOR_PANEL)
 
 local currentSpeedLabel = makeLabel(settingsContent, ("Current speed: %d"):format(SpeedCalculator.BASE_WALK_SPEED), 14, COLOR_TEXT_DIM, 4)
 
@@ -471,14 +471,14 @@ end
 local function setSpeedMode(base: boolean)
 	useBaseSpeed = base
 	normalSpeedButton.BackgroundColor3 = if base then COLOR_ACCENT else COLOR_PANEL
-	clickBasedSpeedButton.BackgroundColor3 = if base then COLOR_PANEL else COLOR_ACCENT
+	scoreBasedSpeedButton.BackgroundColor3 = if base then COLOR_PANEL else COLOR_ACCENT
 	sendSpeedSettings()
 end
 
 normalSpeedButton.MouseButton1Click:Connect(function()
 	setSpeedMode(true)
 end)
-clickBasedSpeedButton.MouseButton1Click:Connect(function()
+scoreBasedSpeedButton.MouseButton1Click:Connect(function()
 	setSpeedMode(false)
 end)
 
@@ -694,7 +694,7 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 	-- Settings screen reflects the server-authoritative values, not local drag state.
 	useBaseSpeed = state.useBaseSpeed
 	normalSpeedButton.BackgroundColor3 = if useBaseSpeed then COLOR_ACCENT else COLOR_PANEL
-	clickBasedSpeedButton.BackgroundColor3 = if useBaseSpeed then COLOR_PANEL else COLOR_ACCENT
+	scoreBasedSpeedButton.BackgroundColor3 = if useBaseSpeed then COLOR_PANEL else COLOR_ACCENT
 	-- Skip overwriting the displayed value while actively dragging, or while a
 	-- locally-sent value hasn't round-tripped back yet (avoids the handle
 	-- visibly snapping back to a stale pre-drag value then jumping forward
@@ -711,7 +711,7 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 	end
 	currentSpeedLabel.Text = ("Current speed: %d (max %d)"):format(
 		math.floor(SpeedCalculator.CalculateEffectiveSpeed(state) + 0.5),
-		math.floor(SpeedCalculator.CalculateMaxSpeed(state.totalClicks) + 0.5)
+		math.floor(SpeedCalculator.CalculateMaxSpeed(state.score) + 0.5)
 	)
 end)
 
