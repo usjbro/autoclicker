@@ -11,6 +11,7 @@ local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManage
 local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseManager"))
 local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
 local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
+local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 
 local ClickEvent = ReplicatedStorage:WaitForChild("ClickEvent")
 local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
@@ -65,6 +66,16 @@ local voidBoxOk, voidBoxErr = pcall(function()
 end)
 if not voidBoxOk then
 	warn("Failed to create void environment: " .. tostring(voidBoxErr))
+end
+
+-- Explorable map (platforms/ramps/stairs/decoration) for Movement mode --
+-- built right after the void environment succeeds, still before any Player
+-- connections below, so a joining player can never spawn before the map
+-- exists. A failure here is likewise non-fatal to the rest of the gameplay
+-- wiring; see MapBuilder.lua.
+local mapOk, mapErr = MapBuilder.Build()
+if not mapOk then
+	warn("Failed to build map: " .. tostring(mapErr))
 end
 
 -- Also reapplies WalkSpeed here (rather than duplicating the same check at
