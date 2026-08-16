@@ -132,12 +132,18 @@ function LeaderboardManager.Refresh(): {LeaderboardEntry}
 	return cachedLeaderboard
 end
 
--- Saves a player's score to the OrderedDataStore
-function LeaderboardManager.SaveScore(player: Player, score: number)
+-- Saves a player's score to the OrderedDataStore. Scores <= 0 are skipped by
+-- default so a player who joins and never plays doesn't get a spurious
+-- "0 score" entry on the leaderboard. Pass force = true to bypass that guard
+-- for a deliberate reset-to-0 write (Reset/Rebirth) -- those callers already
+-- have a leaderboard entry from prior play that needs to reflect the wipe
+-- immediately, rather than staying stuck at the pre-reset score until the
+-- player earns points again.
+function LeaderboardManager.SaveScore(player: Player, score: number, force: boolean?)
 	if not LeaderboardStore then return end
 
 	local integerScore = math.floor(score)
-	if integerScore <= 0 then return end
+	if integerScore <= 0 and not force then return end
 
 	task.spawn(function()
 		local success, err = pcall(function()

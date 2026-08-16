@@ -144,7 +144,19 @@ end)
 -- [SERVER] Handle Reset
 ResetEvent.OnServerEvent:Connect(function(player)
 	withSession(player, function(session)
+		-- Captured before ResetProgress zeroes it: only force a leaderboard
+		-- write for a player who actually had a nonzero score to wipe.
+		-- Otherwise a player who never played (score already 0, no existing
+		-- leaderboard entry) would get a spurious "0 score" row on reset --
+		-- exactly what SaveScore's own <=0 guard exists to prevent.
+		local hadProgress = session.score > 0
 		applyInPlace(session, GameLogic.ResetProgress(session))
+		if hadProgress then
+			-- Force the leaderboard entry to reflect the wipe immediately --
+			-- otherwise a stale pre-reset score can linger until the player
+			-- earns points again (see issue #13).
+			LeaderboardManager.SaveScore(player, session.score, true)
+		end
 		syncPlayer(player)
 	end)
 end)
@@ -155,6 +167,10 @@ RebirthEvent.OnServerEvent:Connect(function(player)
 		if not GameLogic.CanRebirth(session) then return end
 
 		applyInPlace(session, GameLogic.PerformRebirth(session))
+		-- Force the leaderboard entry to reflect the wipe immediately --
+		-- otherwise a stale pre-rebirth score can linger until the player
+		-- earns points again (see issue #13).
+		LeaderboardManager.SaveScore(player, session.score, true)
 		syncPlayer(player)
 	end)
 end)
