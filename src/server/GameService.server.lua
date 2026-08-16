@@ -220,7 +220,15 @@ Players.PlayerAdded:Connect(function(player)
 	end, function(data)
 		-- Covers the case where the character already spawned (default
 		-- WalkSpeed) before DataManager.Load finished; MovementSystem.Start's
-		-- CharacterAdded hook covers every subsequent (re)spawn.
+		-- CharacterAdded hook covers every subsequent (re)spawn. Deliberately
+		-- kept unconditional (unlike the other handlers' now-centralized,
+		-- useBaseSpeed-gated reapply inside syncPlayer below) -- if
+		-- CharacterAdded fired before the session existed, its own hook
+		-- silently no-ops, so this is the only thing that can correct
+		-- WalkSpeed for a useBaseSpeed=true joiner who hits that race. The
+		-- overlap with syncPlayer's reapply for a useBaseSpeed=false joiner
+		-- is a harmless one-time redundant write on join, not a hot-path
+		-- concern worth restructuring around.
 		MovementSystem.ApplyEffectiveSpeed(player, data)
 		syncPlayer(player)
 	end)
