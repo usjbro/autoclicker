@@ -34,6 +34,12 @@ end)
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoclickerGui"
 screenGui.ResetOnSpawn = false
+-- Global (not the default Sibling) ZIndex behavior so the nav stack's
+-- explicit ZIndex (below) can be compared against elements several levels
+-- deeper in a different branch of the tree (e.g. a popup window's
+-- descendants) -- needed so the nav stack can guarantee it stays on top of
+-- popups on small screens where physical overlap can't always be avoided.
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 screenGui.Parent = playerGui
 
 local COLOR_BG = Color3.fromHex("1e1e2f")
@@ -76,6 +82,17 @@ local function addPadding(instance: Instance, amount: number)
 	return padding
 end
 
+-- Clamps a scale-sized element's absolute size so it doesn't shrink below
+-- what's readable/tappable on a small screen or grow absurdly large on a big
+-- one. Pass math.huge for an axis that shouldn't be clamped on that end.
+local function addSizeConstraint(instance: GuiObject, minSize: Vector2, maxSize: Vector2)
+	local constraint = Instance.new("UISizeConstraint")
+	constraint.MinSize = minSize
+	constraint.MaxSize = maxSize
+	constraint.Parent = instance
+	return constraint
+end
+
 local function makeLabel(parent: Instance, text: string, size: number, color: Color3, order: number, bold: boolean?): TextLabel
 	local label = Instance.new("TextLabel")
 	label.Text = text
@@ -83,8 +100,13 @@ local function makeLabel(parent: Instance, text: string, size: number, color: Co
 	label.TextSize = size
 	label.TextColor3 = color
 	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextWrapped = true
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.new(1, 0, 0, size + 6)
+	-- Height follows wrapped text instead of clipping/overlapping the next
+	-- sibling when a narrow container forces a line to wrap (e.g. a long
+	-- leaderboard entry on a narrow screen).
+	label.AutomaticSize = Enum.AutomaticSize.Y
 	label.LayoutOrder = order
 	label.Parent = parent
 	return label
@@ -113,6 +135,15 @@ end
 -- this holds up across screen sizes.
 --------------------------------------------------------------------------------
 
+-- ZIndex 10: on a small/narrow screen the centered popup windows (Shop /
+-- Settings) can be wide enough to physically reach this bottom-right corner
+-- (see createPopupWindow's size clamp below) -- the nav stack must render
+-- (and stay clickable) above them, or a player on a small screen could open
+-- a popup with no way to back out of it. Combined with the ScreenGui's
+-- Global ZIndexBehavior above, this wins regardless of instance creation
+-- order or tree depth.
+local NAV_ZINDEX = 10
+
 local navContainer = Instance.new("Frame")
 navContainer.Name = "NavContainer"
 navContainer.AutomaticSize = Enum.AutomaticSize.Y
@@ -120,6 +151,7 @@ navContainer.Size = UDim2.new(0, 64, 0, 0)
 navContainer.Position = UDim2.new(1, -20, 1, -20)
 navContainer.AnchorPoint = Vector2.new(1, 1)
 navContainer.BackgroundTransparency = 1
+navContainer.ZIndex = NAV_ZINDEX
 navContainer.Parent = screenGui
 addListLayout(navContainer, 10)
 
@@ -133,6 +165,7 @@ toggleMovingButton.BackgroundColor3 = COLOR_MOVE
 toggleMovingButton.Size = UDim2.new(0, 56, 0, 56)
 toggleMovingButton.BorderSizePixel = 0
 toggleMovingButton.LayoutOrder = 1
+toggleMovingButton.ZIndex = NAV_ZINDEX
 toggleMovingButton.Parent = navContainer
 addCorner(toggleMovingButton, 12)
 
@@ -146,6 +179,7 @@ local function addNavButton(icon: string, order: number): TextButton
 	button.Size = UDim2.new(0, 56, 0, 56)
 	button.BorderSizePixel = 0
 	button.LayoutOrder = order
+	button.ZIndex = NAV_ZINDEX
 	button.Parent = navContainer
 	addCorner(button, 12)
 
@@ -173,7 +207,9 @@ local LEADERBOARD_ROW_COUNT = 10
 local leaderboardPanel = Instance.new("Frame")
 leaderboardPanel.Name = "LeaderboardPanel"
 leaderboardPanel.AutomaticSize = Enum.AutomaticSize.Y
-leaderboardPanel.Size = UDim2.new(0, 240, 0, 0)
+-- Scale-based width (was a flat `UDim2.new(0, 240, 0, 0)`) clamped so it
+-- never gets too narrow to read a row or too wide on an ultrawide monitor.
+leaderboardPanel.Size = UDim2.new(0.32, 0, 0, 0)
 leaderboardPanel.Position = UDim2.new(1, -20, 0, 20)
 leaderboardPanel.AnchorPoint = Vector2.new(1, 0)
 leaderboardPanel.BackgroundColor3 = COLOR_BG
@@ -182,6 +218,7 @@ leaderboardPanel.Parent = screenGui
 addCorner(leaderboardPanel, 12)
 addListLayout(leaderboardPanel, 4)
 addPadding(leaderboardPanel, 12)
+addSizeConstraint(leaderboardPanel, Vector2.new(180, 0), Vector2.new(260, math.huge))
 
 makeLabel(leaderboardPanel, "Leaderboard", 18, COLOR_TEXT, 0, true)
 
@@ -213,7 +250,10 @@ end)
 local clickerPanel = Instance.new("Frame")
 clickerPanel.Name = "ClickerPanel"
 clickerPanel.AutomaticSize = Enum.AutomaticSize.Y
-clickerPanel.Size = UDim2.new(0, 300, 0, 0)
+-- Scale-based width (was a flat `UDim2.new(0, 300, 0, 0)`), clamped so the
+-- HUD stays wide enough for the click button below at small sizes without
+-- ballooning on a wide desktop monitor.
+clickerPanel.Size = UDim2.new(0.75, 0, 0, 0)
 clickerPanel.Position = UDim2.new(0.5, 0, 0, 20)
 clickerPanel.AnchorPoint = Vector2.new(0.5, 0)
 clickerPanel.BackgroundColor3 = COLOR_BG
@@ -222,6 +262,7 @@ clickerPanel.Parent = screenGui
 addCorner(clickerPanel, 12)
 addListLayout(clickerPanel, 8)
 addPadding(clickerPanel, 16)
+addSizeConstraint(clickerPanel, Vector2.new(240, 0), Vector2.new(340, math.huge))
 
 local scoreLabel = makeLabel(clickerPanel, "Score: 0", 24, COLOR_TEXT, 1, true)
 local rateLabel = makeLabel(clickerPanel, "+0/min", 15, COLOR_TEXT_DIM, 2)
@@ -238,21 +279,35 @@ clickButton.Font = Enum.Font.SourceSansBold
 clickButton.TextSize = 26
 clickButton.TextColor3 = Color3.new(1, 1, 1)
 clickButton.BackgroundColor3 = COLOR_ACCENT
-clickButton.Size = UDim2.new(0, 220, 0, 70)
+-- Scale-based width (was a flat `UDim2.new(0, 220, 0, 70)`) so it tracks
+-- clickerPanel's own scale-based width instead of risking overflowing it
+-- (or looking lost inside it) at the panel's clamped extremes.
+clickButton.Size = UDim2.new(0.75, 0, 0, 70)
 clickButton.BorderSizePixel = 0
 clickButton.LayoutOrder = 5
 clickButton.Parent = clickerPanel
 addCorner(clickButton, 8)
+addSizeConstraint(clickButton, Vector2.new(180, 0), Vector2.new(240, math.huge))
 
 --------------------------------------------------------------------------------
 -- Shop screen: upgrade cards (name, description, level, pts + Robux cost) + Rebirth
 --------------------------------------------------------------------------------
 
-local function createPopupWindow(name: string, title: string): (Frame, Frame)
+-- Height, in pixels, reserved at the top of a popup window for its title --
+-- fixed (not AutomaticSize) so the ScrollingFrame below it can be given an
+-- exact "fill the rest" size instead of relying on UIListLayout, which has
+-- no flex/fill-remaining-space concept in Roblox.
+local POPUP_TITLE_HEIGHT = 40
+
+local function createPopupWindow(name: string, title: string): (Frame, ScrollingFrame)
 	local window = Instance.new("Frame")
 	window.Name = name
-	window.AutomaticSize = Enum.AutomaticSize.Y
-	window.Size = UDim2.new(0, 360, 0, 0)
+	-- Scale-based on both axes (was a flat `UDim2.new(0, 360, 0, 0)`, height
+	-- driven by AutomaticSize) so the window fits a small/portrait screen
+	-- instead of overflowing it -- clamped below so it doesn't become
+	-- absurdly large on a big desktop monitor, or too small to hold the
+	-- upgrade cards' two-button rows on a tiny screen.
+	window.Size = UDim2.new(0.92, 0, 0.82, 0)
 	window.Position = UDim2.new(0.5, 0, 0.5, 0)
 	window.AnchorPoint = Vector2.new(0.5, 0.5)
 	window.BackgroundColor3 = COLOR_BG
@@ -260,17 +315,32 @@ local function createPopupWindow(name: string, title: string): (Frame, Frame)
 	window.Visible = false
 	window.Parent = screenGui
 	addCorner(window, 12)
-	addListLayout(window, 12)
 	addPadding(window, 20)
+	addSizeConstraint(window, Vector2.new(380, 280), Vector2.new(460, 620))
 
-	makeLabel(window, title, 26, COLOR_TEXT, 1, true).TextXAlignment = Enum.TextXAlignment.Center
+	local titleLabel = makeLabel(window, title, 26, COLOR_TEXT, 1, true)
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+	-- Fixed height (overriding makeLabel's default AutomaticSize) so the
+	-- content ScrollingFrame below can be positioned/sized against a known
+	-- quantity rather than an automatic one.
+	titleLabel.AutomaticSize = Enum.AutomaticSize.None
+	titleLabel.Size = UDim2.new(1, 0, 0, POPUP_TITLE_HEIGHT)
 
-	local content = Instance.new("Frame")
+	-- A ScrollingFrame, not a plain AutomaticSize Frame, because the window
+	-- itself is now height-clamped rather than growing to fit -- Shop's five
+	-- cards can be taller than a phone's viewport, so overflow needs to
+	-- scroll instead of extending the window off-screen.
+	local content = Instance.new("ScrollingFrame")
 	content.Name = "Content"
-	content.AutomaticSize = Enum.AutomaticSize.Y
-	content.Size = UDim2.new(1, -40, 0, 0)
+	content.Size = UDim2.new(1, 0, 1, -POPUP_TITLE_HEIGHT)
+	content.Position = UDim2.new(0, 0, 0, POPUP_TITLE_HEIGHT)
 	content.BackgroundTransparency = 1
-	content.LayoutOrder = 2
+	content.BorderSizePixel = 0
+	content.ScrollingDirection = Enum.ScrollingDirection.Y
+	content.ScrollBarThickness = 6
+	content.ScrollBarImageColor3 = COLOR_TEXT_DIM
+	content.CanvasSize = UDim2.new(0, 0, 0, 0)
+	content.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
 	content.Parent = window
 	addListLayout(content, 8)
 
@@ -534,7 +604,9 @@ end)
 local movementTopBar = Instance.new("Frame")
 movementTopBar.Name = "MovementTopBar"
 movementTopBar.AutomaticSize = Enum.AutomaticSize.Y
-movementTopBar.Size = UDim2.new(0, 260, 0, 0)
+-- Scale-based width (was a flat `UDim2.new(0, 260, 0, 0)`), clamped like the
+-- other top-anchored panels above.
+movementTopBar.Size = UDim2.new(0.6, 0, 0, 0)
 movementTopBar.Position = UDim2.new(0.5, 0, 0, 20)
 movementTopBar.AnchorPoint = Vector2.new(0.5, 0)
 movementTopBar.BackgroundColor3 = COLOR_BG
@@ -544,6 +616,7 @@ movementTopBar.Parent = screenGui
 addCorner(movementTopBar, 12)
 addListLayout(movementTopBar, 4)
 addPadding(movementTopBar, 12)
+addSizeConstraint(movementTopBar, Vector2.new(220, 0), Vector2.new(320, math.huge))
 
 local movementScoreLabel = makeLabel(movementTopBar, "Score: 0", 18, COLOR_TEXT, 1, true)
 local movementClicksLabel = makeLabel(movementTopBar, "Total Clicks: 0", 14, COLOR_TEXT_DIM, 2)
@@ -573,6 +646,23 @@ addCorner(movementReturnButton, 10)
 type Screen = "Clicker" | "Shop" | "Settings" | "Movement"
 local currentScreen: Screen = "Clicker"
 
+-- The leaderboard panel is only ever shown alongside the Clicker HUD (never
+-- behind Shop/Settings, which are wide/tall enough on a small screen to
+-- reach into its top-right corner -- see createPopupWindow's size clamp),
+-- and only when the screen has enough room for it not to visually collide
+-- with the Clicker HUD or the bottom-right nav stack, both of which it can
+-- plausibly get close to on a short or narrow screen. Re-evaluated on
+-- resize, not just on screen switches, since a Studio window resize or a
+-- device rotation doesn't fire setScreen.
+local LEADERBOARD_MIN_WIDTH = 550
+local LEADERBOARD_MIN_HEIGHT = 500
+
+local function updateLeaderboardVisibility()
+	local viewportSize = screenGui.AbsoluteSize
+	local roomAvailable = viewportSize.X >= LEADERBOARD_MIN_WIDTH and viewportSize.Y >= LEADERBOARD_MIN_HEIGHT
+	leaderboardPanel.Visible = currentScreen == "Clicker" and roomAvailable
+end
+
 local function setScreen(screen: Screen)
 	currentScreen = screen
 
@@ -582,12 +672,13 @@ local function setScreen(screen: Screen)
 
 	local inMovement = screen == "Movement"
 	navContainer.Visible = not inMovement
-	leaderboardPanel.Visible = not inMovement
 	movementTopBar.Visible = inMovement
 	movementReturnButton.Visible = inMovement
+	updateLeaderboardVisibility()
 end
 
 setScreen("Clicker")
+screenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateLeaderboardVisibility)
 
 mainNavButton.MouseButton1Click:Connect(function()
 	setScreen("Clicker")
@@ -619,9 +710,12 @@ end)
 local clickButtonOriginalSize = clickButton.Size
 
 local function animateClick(btn: GuiButton, originalSize: UDim2)
+	-- Scales both the Scale and Offset components (not just Offset) --
+	-- clickButton's width is now scale-based (see above), so an
+	-- Offset-only shrink would have no visible effect on its width.
 	local shrunkSize = UDim2.new(
-		originalSize.X.Scale, originalSize.X.Offset * 0.96,
-		originalSize.Y.Scale, originalSize.Y.Offset * 0.96
+		originalSize.X.Scale * 0.96, originalSize.X.Offset * 0.96,
+		originalSize.Y.Scale * 0.96, originalSize.Y.Offset * 0.96
 	)
 	TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Size = shrunkSize
