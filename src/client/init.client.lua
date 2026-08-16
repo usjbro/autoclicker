@@ -298,6 +298,9 @@ addSizeConstraint(clickButton, Vector2.new(180, 0), Vector2.new(240, math.huge))
 -- exact "fill the rest" size instead of relying on UIListLayout, which has
 -- no flex/fill-remaining-space concept in Roblox.
 local POPUP_TITLE_HEIGHT = 40
+-- Gap between the title and the content below it -- without this the content
+-- ScrollingFrame's top edge sits flush against the title's bottom edge.
+local POPUP_TITLE_GAP = 12
 
 local function createPopupWindow(name: string, title: string): (Frame, ScrollingFrame)
 	local window = Instance.new("Frame")
@@ -332,14 +335,13 @@ local function createPopupWindow(name: string, title: string): (Frame, Scrolling
 	-- scroll instead of extending the window off-screen.
 	local content = Instance.new("ScrollingFrame")
 	content.Name = "Content"
-	content.Size = UDim2.new(1, 0, 1, -POPUP_TITLE_HEIGHT)
-	content.Position = UDim2.new(0, 0, 0, POPUP_TITLE_HEIGHT)
+	content.Size = UDim2.new(1, 0, 1, -(POPUP_TITLE_HEIGHT + POPUP_TITLE_GAP))
+	content.Position = UDim2.new(0, 0, 0, POPUP_TITLE_HEIGHT + POPUP_TITLE_GAP)
 	content.BackgroundTransparency = 1
 	content.BorderSizePixel = 0
 	content.ScrollingDirection = Enum.ScrollingDirection.Y
 	content.ScrollBarThickness = 6
 	content.ScrollBarImageColor3 = COLOR_TEXT_DIM
-	content.CanvasSize = UDim2.new(0, 0, 0, 0)
 	content.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
 	content.Parent = window
 	addListLayout(content, 8)
@@ -704,32 +706,29 @@ end)
 -- Click input + animation
 --------------------------------------------------------------------------------
 
--- Always tweens relative to the button's fixed original size (never its
--- current, possibly-already-shrunk size), so rapid overlapping clicks can't
--- compound and leave the button permanently smaller.
-local clickButtonOriginalSize = clickButton.Size
+-- A UIScale, not a Size tween, drives the shrink -- clickButton's Size is
+-- clamped by a UISizeConstraint (addSizeConstraint above), so on a narrow
+-- screen where the button is already pinned at its MinSize, tweening Size
+-- down gets clamped right back up and the animation has no visible effect.
+-- UIScale multiplies the rendered size without touching Size, so it's
+-- immune to that clamp.
+local clickButtonScale = Instance.new("UIScale")
+clickButtonScale.Parent = clickButton
 
-local function animateClick(btn: GuiButton, originalSize: UDim2)
-	-- Scales both the Scale and Offset components (not just Offset) --
-	-- clickButton's width is now scale-based (see above), so an
-	-- Offset-only shrink would have no visible effect on its width.
-	local shrunkSize = UDim2.new(
-		originalSize.X.Scale * 0.96, originalSize.X.Offset * 0.96,
-		originalSize.Y.Scale * 0.96, originalSize.Y.Offset * 0.96
-	)
-	TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = shrunkSize
+local function animateClick(scale: UIScale)
+	TweenService:Create(scale, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Scale = 0.96
 	}):Play()
 	task.delay(0.05, function()
-		TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Size = originalSize
+		TweenService:Create(scale, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Scale = 1
 		}):Play()
 	end)
 end
 
 local function registerClick()
 	ClickEvent:FireServer()
-	animateClick(clickButton, clickButtonOriginalSize)
+	animateClick(clickButtonScale)
 end
 
 clickButton.MouseButton1Click:Connect(registerClick)
