@@ -4,9 +4,9 @@ local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local GameConstants = require(Shared:WaitForChild("GameConstants"))
-local GameLogic = require(Shared:WaitForChild("GameLogic"))
 local DataManager = require(script.Parent:WaitForChild("DataManager"))
-local SessionLock = require(script.Parent:WaitForChild("SessionLock"))
+local SessionStoreType = require(script.Parent:WaitForChild("SessionStore"))
+type SessionStoreModule = SessionStoreType.SessionStoreModule
 
 local RobuxPurchaseManager = {}
 
@@ -74,11 +74,11 @@ local function unclaimReceipt(receiptId: string)
 	end
 end
 
--- getActiveSessions/syncPlayer are injected the same way LeaderboardManager.Start
+-- sessionStore/syncPlayer are injected the same way LeaderboardManager.Start
 -- is wired up in GameService.server.lua, so this module doesn't need its own
 -- copy of session state.
 function RobuxPurchaseManager.Start(
-	getActiveSessions: () -> { [number]: GameLogic.Session },
+	sessionStore: SessionStoreModule,
 	syncPlayer: (player: Player) -> ()
 )
 	MarketplaceService.ProcessReceipt = function(receiptInfo)
@@ -111,10 +111,14 @@ function RobuxPurchaseManager.Start(
 
 		local decision = Enum.ProductPurchaseDecision.NotProcessedYet
 
-		-- Routed through the same SessionLock as every other session-mutating
-		-- handler in GameService.server.lua, so a Reset/Rebirth/disconnect-save
-		-- can never interleave with this grant on the same session table.
-		SessionLock.Run(receiptInfo.PlayerId, function()
+		-- Routed through the same SessionStore (which itself takes SessionLock)
+		-- as every other session-mutating handler in GameService.server.lua, so
+		-- a Reset/Rebirth/disconnect-save can never interleave with this grant
+		-- on the same session table.
+		local sessionFound = false
+		sessionStore.With(receiptInfo.PlayerId, function(session)
+			sessionFound = true
+
 			-- The pcall covers only the part that determines whether the
 			-- purchase is actually committed (grant + save) -- once that
 			-- succeeds, the purchase is durably done regardless of what
@@ -125,11 +129,6 @@ function RobuxPurchaseManager.Start(
 			-- success, error(...) means failure -- there's no separate
 			-- "did it work" flag to forget to set on some future added path.
 			local ok, err = pcall(function()
-				local session = getActiveSessions()[receiptInfo.PlayerId]
-				if not session then
-					error("no active session for player", 0)
-				end
-
 				-- Grant, then durably save immediately -- real money must not
 				-- depend on the player disconnecting naturally.
 				local field = GameConstants.UPGRADE_FIELDS[upgradeId]
@@ -165,6 +164,17 @@ function RobuxPurchaseManager.Start(
 				syncPlayer(player)
 			end
 		end)
+
+		if not sessionFound then
+			-- SessionStore.With silently no-ops when there's no session for
+			-- this userId (e.g. the player disconnected between the earlier
+			-- online check and now) -- mirror the same unclaim-and-retry
+			-- handling the grant-failure path above uses, since the receipt
+			-- claim must never be left stuck "processed" with nothing granted.
+			unclaimReceipt(receiptInfo.PurchaseId)
+			warn("Robux purchase grant failed for PurchaseId " .. receiptInfo.PurchaseId
+				.. ": no active session for player, will retry")
+		end
 
 		return decision
 	end

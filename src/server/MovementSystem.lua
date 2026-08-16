@@ -3,6 +3,8 @@ local Players = game:GetService("Players")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local GameLogic = require(Shared:WaitForChild("GameLogic"))
 local SpeedCalculator = require(Shared:WaitForChild("SpeedCalculator"))
+local SessionStoreType = require(script.Parent:WaitForChild("SessionStore"))
+type SessionStoreModule = SessionStoreType.SessionStoreModule
 
 local MovementSystem = {}
 
@@ -22,10 +24,10 @@ end
 
 -- WalkSpeed doesn't survive a respawn (a fresh Humanoid resets to the Roblox
 -- default), so reapply it every time a character is (re)created.
-function MovementSystem.Start(getActiveSessions: () -> { [number]: GameLogic.Session })
+function MovementSystem.Start(sessionStore: SessionStoreModule)
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function()
-			local session = getActiveSessions()[player.UserId]
+			local session = sessionStore.Peek(player.UserId)
 			if session then
 				MovementSystem.ApplyEffectiveSpeed(player, session)
 			end

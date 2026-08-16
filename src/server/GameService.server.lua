@@ -10,7 +10,7 @@ local DataManager = require(script.Parent:WaitForChild("DataManager"))
 local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManager"))
 local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseManager"))
 local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
-local SessionLock = require(script.Parent:WaitForChild("SessionLock"))
+local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
 
 local ClickEvent = ReplicatedStorage:WaitForChild("ClickEvent")
 local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
@@ -18,9 +18,6 @@ local ResetEvent = ReplicatedStorage:WaitForChild("ResetEvent")
 local RebirthEvent = ReplicatedStorage:WaitForChild("RebirthEvent")
 local UpdateSpeedSettingsEvent = ReplicatedStorage:WaitForChild("UpdateSpeedSettingsEvent")
 local SyncState = ReplicatedStorage:WaitForChild("SyncState")
-
--- State storage for active players
-local activeSessions = {}
 
 -- Environment: a large black box encloses the whole play space so the
 -- backdrop is solid black instead of Roblox's default sky, with a floor and
@@ -71,56 +68,54 @@ if not voidBoxOk then
 end
 
 local function syncPlayer(player: Player)
-	local session = activeSessions[player.UserId]
+	local session = SessionStore.Peek(player.UserId)
 	if session then
 		SyncState:FireClient(player, session)
 	end
 end
 
 -- Copies every field from newValues into session in place, rather than
--- replacing activeSessions[userId] with a new table outright. Other code
--- (e.g. RobuxPurchaseManager) can hold a reference to a player's session
--- across a yield; replacing the table wholesale would silently orphan that
--- reference from a concurrent Reset/Rebirth.
+-- replacing the stored session with a new table outright. Other code (e.g.
+-- RobuxPurchaseManager) can hold a reference to a player's session across a
+-- yield; replacing the table wholesale would silently orphan that reference
+-- from a concurrent Reset/Rebirth.
 local function applyInPlace(session: GameLogic.Session, newValues: GameLogic.Session)
 	for key, value in pairs(newValues) do
 		(session :: any)[key] = value
 	end
 end
 
--- Every handler below that touches a player's session is routed through
--- SessionLock, since several of these can yield on a DataStore call
--- mid-operation (Save, in particular) -- without this, e.g. a Reset could
--- zero a session's fields while PlayerRemoving's save for that same player
--- is still in flight, or a disconnect could race a purchase. This must cover
--- every reader/writer of activeSessions, not just the RemoteEvent handlers --
--- the idle-gain tick loop and PlayerAdded/PlayerRemoving below go through it
--- too.
-
--- Acquires the lock, looks up the session, and calls fn(session) only if it
--- exists -- the "lock + lookup + guard" sequence every handler below needs.
-local function withSession(player: Player, fn: (GameLogic.Session) -> ())
-	SessionLock.Run(player.UserId, function()
-		local session = activeSessions[player.UserId]
-		if session then
-			fn(session)
-		end
-	end)
-end
+-- Every handler below that touches a player's session goes through
+-- SessionStore (which itself routes through SessionLock), since several of
+-- these can yield on a DataStore call mid-operation (Save, in particular) --
+-- without this, e.g. a Reset could zero a session's fields while
+-- PlayerRemoving's save for that same player is still in flight, or a
+-- disconnect could race a purchase. This must cover every reader/writer of
+-- session state, not just the RemoteEvent handlers -- the idle-gain tick
+-- loop and PlayerAdded/PlayerRemoving below go through SessionStore too, and
+-- activeSessions itself is now private to SessionStore.lua so nothing here
+-- can touch it directly even by accident.
 
 -- [SERVER] Handle Click
 ClickEvent.OnServerEvent:Connect(function(player)
-	withSession(player, function(session)
+	SessionStore.With(player.UserId, function(session)
 		session.score += GameLogic.CalculateClickGain(session)
 		session.totalClicks += 1
-		MovementSystem.ApplyEffectiveSpeed(player, session)
+		-- Only click-based speed mode can actually move the needle here --
+		-- in useBaseSpeed mode, CalculateEffectiveSpeed always returns the
+		-- same constant regardless of totalClicks, so reapplying it on every
+		-- click would just be redundant WalkSpeed replication on the hottest
+		-- input path in the game.
+		if not session.useBaseSpeed then
+			MovementSystem.ApplyEffectiveSpeed(player, session)
+		end
 		syncPlayer(player)
 	end)
 end)
 
 -- [SERVER] Handle Purchase
 PurchaseEvent.OnServerEvent:Connect(function(player, upgradeId)
-	withSession(player, function(session)
+	SessionStore.With(player.UserId, function(session)
 		if typeof(upgradeId) ~= "string" then return end
 		local field = GameConstants.UPGRADE_FIELDS[upgradeId]
 		if not field then return end
@@ -136,18 +131,34 @@ end)
 
 -- [SERVER] Handle Reset
 ResetEvent.OnServerEvent:Connect(function(player)
-	withSession(player, function(session)
+	SessionStore.With(player.UserId, function(session)
+		-- Captured before ResetProgress zeroes it: only force a leaderboard
+		-- write for a player who actually had a nonzero score to wipe.
+		-- Otherwise a player who never played (score already 0, no existing
+		-- leaderboard entry) would get a spurious "0 score" row on reset --
+		-- exactly what SaveScore's own <=0 guard exists to prevent.
+		local hadProgress = session.score > 0
 		applyInPlace(session, GameLogic.ResetProgress(session))
+		if hadProgress then
+			-- Force the leaderboard entry to reflect the wipe immediately --
+			-- otherwise a stale pre-reset score can linger until the player
+			-- earns points again (see issue #13).
+			LeaderboardManager.SaveScore(player, session.score, true)
+		end
 		syncPlayer(player)
 	end)
 end)
 
 -- [SERVER] Handle Rebirth
 RebirthEvent.OnServerEvent:Connect(function(player)
-	withSession(player, function(session)
+	SessionStore.With(player.UserId, function(session)
 		if not GameLogic.CanRebirth(session) then return end
 
 		applyInPlace(session, GameLogic.PerformRebirth(session))
+		-- Force the leaderboard entry to reflect the wipe immediately --
+		-- otherwise a stale pre-rebirth score can linger until the player
+		-- earns points again (see issue #13).
+		LeaderboardManager.SaveScore(player, session.score, true)
 		syncPlayer(player)
 	end)
 end)
@@ -156,7 +167,7 @@ end)
 -- preference (base speed on/off, slider percent) -- the actual WalkSpeed is
 -- always recomputed server-side via MovementSystem, never taken from the client.
 UpdateSpeedSettingsEvent.OnServerEvent:Connect(function(player, useBaseSpeed, speedSliderPercent)
-	withSession(player, function(session)
+	SessionStore.With(player.UserId, function(session)
 		if typeof(useBaseSpeed) == "boolean" then
 			session.useBaseSpeed = useBaseSpeed
 		end
@@ -180,9 +191,9 @@ Players.PlayerAdded:Connect(function(player)
 	-- doing the load itself inside the lock is what guarantees PlayerRemoving
 	-- can never run *between* the load finishing and the session being
 	-- installed.
-	SessionLock.Run(player.UserId, function()
-		local data = DataManager.Load(player)
-		activeSessions[player.UserId] = data
+	SessionStore.Install(player.UserId, function()
+		return DataManager.Load(player)
+	end, function(data)
 		-- Covers the case where the character already spawned (default
 		-- WalkSpeed) before DataManager.Load finished; MovementSystem.Start's
 		-- CharacterAdded hook covers every subsequent (re)spawn.
@@ -192,10 +203,9 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	withSession(player, function(session)
+	SessionStore.Remove(player.UserId, function(session)
 		DataManager.Save(player, session)
 		LeaderboardManager.SaveScore(player, session.score)
-		activeSessions[player.UserId] = nil
 	end)
 end)
 
@@ -204,24 +214,19 @@ task.spawn(function()
 	while true do
 		local deltaTime = task.wait(GameConstants.TICK_RATE)
 
-		-- Snapshot the current userIds before looping: withSession below can
-		-- yield (SessionLock.Run waits on task.wait() if contended), and
+		-- Snapshot the current userIds before looping: SessionStore.With below
+		-- can yield (SessionLock.Run waits on task.wait() if contended), and
 		-- Lua only guarantees pairs() stays valid across removed keys during
 		-- iteration, not added ones -- a player joining mid-tick would
 		-- otherwise be able to corrupt this traversal.
-		local userIds = {}
-		for userId in pairs(activeSessions) do
-			table.insert(userIds, userId)
-		end
+		local userIds = SessionStore.UserIds()
 
 		for _, userId in ipairs(userIds) do
 			-- Each player's tick runs in its own coroutine so one player's
 			-- contended lock (e.g. mid Robux-purchase save) can't stall idle
 			-- gain for every other online player this tick.
 			task.spawn(function()
-				SessionLock.Run(userId, function()
-					local session = activeSessions[userId]
-					if not session then return end
+				SessionStore.With(userId, function(session)
 					if session.autoClickerCount <= 0 and session.megaClickerCount <= 0 then return end
 
 					-- Credit the session unconditionally (matches the
@@ -239,18 +244,12 @@ task.spawn(function()
 end)
 
 -- Start Global Leaderboard Manager
-LeaderboardManager.Start(function()
-	return activeSessions
-end)
+LeaderboardManager.Start(SessionStore)
 
 -- Start Robux Purchase Manager
-RobuxPurchaseManager.Start(function()
-	return activeSessions
-end, syncPlayer)
+RobuxPurchaseManager.Start(SessionStore, syncPlayer)
 
 -- Start Movement System (re-applies WalkSpeed on every character (re)spawn)
-MovementSystem.Start(function()
-	return activeSessions
-end)
+MovementSystem.Start(SessionStore)
 
 print("Autoclicker Server Initialized")

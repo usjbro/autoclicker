@@ -5,8 +5,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConstants = require(Shared:WaitForChild("GameConstants"))
-local GameLogic = require(Shared:WaitForChild("GameLogic"))
 local DataManager = require(script.Parent:WaitForChild("DataManager"))
+local SessionStoreType = require(script.Parent:WaitForChild("SessionStore"))
+type SessionStoreModule = SessionStoreType.SessionStoreModule
 
 local LeaderboardUpdate = ReplicatedStorage:WaitForChild("LeaderboardUpdate")
 
@@ -37,15 +38,15 @@ local usernameCache: {[number]: string} = {}
 -- leave again.
 local OFFLINE_CACHE_TTL_SECONDS = 300
 local offlineTotalClicksCache: {[number]: { value: number, cachedAt: number }} = {}
-local getActiveSessionsRef: (() -> {[number]: GameLogic.Session})? = nil
+local sessionStoreRef: SessionStoreModule? = nil
 
 -- totalClicks isn't in the OrderedDataStore (that only sorts by score), so
 -- pull it from the live session if the player's online, otherwise fall back
 -- to their last save (cached briefly, see above). Never errors -- worst case
 -- a leaderboard row shows 0 or a slightly stale value.
 local function getTotalClicks(userId: number): number
-	if getActiveSessionsRef then
-		local session = getActiveSessionsRef()[userId]
+	if sessionStoreRef then
+		local session = sessionStoreRef.Peek(userId)
 		if session then
 			return session.totalClicks
 		end
@@ -132,12 +133,18 @@ function LeaderboardManager.Refresh(): {LeaderboardEntry}
 	return cachedLeaderboard
 end
 
--- Saves a player's score to the OrderedDataStore
-function LeaderboardManager.SaveScore(player: Player, score: number)
+-- Saves a player's score to the OrderedDataStore. Scores <= 0 are skipped by
+-- default so a player who joins and never plays doesn't get a spurious
+-- "0 score" entry on the leaderboard. Pass force = true to bypass that guard
+-- for a deliberate reset-to-0 write (Reset/Rebirth) -- those callers already
+-- have a leaderboard entry from prior play that needs to reflect the wipe
+-- immediately, rather than staying stuck at the pre-reset score until the
+-- player earns points again.
+function LeaderboardManager.SaveScore(player: Player, score: number, force: boolean?)
 	if not LeaderboardStore then return end
 
 	local integerScore = math.floor(score)
-	if integerScore <= 0 then return end
+	if integerScore <= 0 and not force then return end
 
 	task.spawn(function()
 		local success, err = pcall(function()
@@ -151,8 +158,8 @@ function LeaderboardManager.SaveScore(player: Player, score: number)
 end
 
 -- Starts the periodic update loop and registers joining players
-function LeaderboardManager.Start(getActiveSessions: () -> {[number]: GameLogic.Session})
-	getActiveSessionsRef = getActiveSessions
+function LeaderboardManager.Start(sessionStore: SessionStoreModule)
+	sessionStoreRef = sessionStore
 
 	-- Send the existing cached leaderboard immediately to any player upon joining
 	Players.PlayerAdded:Connect(function(player)
@@ -182,12 +189,12 @@ function LeaderboardManager.Start(getActiveSessions: () -> {[number]: GameLogic.
 			-- its own duration), so this can never observe a torn write. The
 			-- actual DataStore write happens inside SaveScore's own detached
 			-- task.spawn, which a session lock here wouldn't cover anyway.
-			for userId, session in pairs(getActiveSessions()) do
+			sessionStore.ForEachSession(function(userId, session)
 				local player = Players:GetPlayerByUserId(userId)
 				if player then
 					LeaderboardManager.SaveScore(player, session.score)
 				end
-			end
+			end)
 
 			-- Query and broadcast latest leaderboard standings
 			LeaderboardManager.Refresh()
