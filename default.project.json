@@ -6,9 +6,6 @@
       "Shared": {
         "$path": "src/shared"
       },
-      "TestEZ": {
-        "$path": "src/Packages/TestEZ"
-      },
       "ClickEvent": {
         "$className": "RemoteEvent"
       },
@@ -37,6 +34,11 @@
       },
       "Tests": {
         "$path": "src/tests"
+      }
+    },
+    "ServerStorage": {
+      "TestEZ": {
+        "$path": "src/Packages/TestEZ"
       }
     },
     "StarterPlayer": {

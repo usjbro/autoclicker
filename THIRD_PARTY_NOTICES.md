@@ -2,7 +2,7 @@
 
 ## TestEZ
 
-Vendored under `src/Packages/TestEZ/` (synced by Rojo to `ReplicatedStorage.TestEZ`)
+Vendored under `src/Packages/TestEZ/` (synced by Rojo to `ServerStorage.TestEZ`)
 so the TestEZ suite under `src/tests/*.spec.lua` can actually run in Roblox Studio --
 see `CLAUDE.md`'s "Tests" section.
 
