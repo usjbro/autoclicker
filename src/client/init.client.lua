@@ -230,20 +230,6 @@ for i = 1, LEADERBOARD_ROW_COUNT do
 	table.insert(leaderboardRows, row)
 end
 
-LeaderboardUpdate.OnClientEvent:Connect(function(entries)
-	for i, row in ipairs(leaderboardRows) do
-		local entry = entries[i]
-		if entry then
-			row.Text = ("%d. %s -- %s pts, %s clicks"):format(
-				i, entry.username, NumberFormat.Format(entry.score), NumberFormat.Format(entry.totalClicks)
-			)
-			row.Visible = true
-		else
-			row.Visible = false
-		end
-	end
-end)
-
 --------------------------------------------------------------------------------
 -- Clicker screen: Score/Rate/Total Clicks/Rebirths + the Click button
 --------------------------------------------------------------------------------
@@ -709,14 +695,39 @@ end
 
 setScreen("Clicker")
 screenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateLeaderboardVisibility)
+
+LeaderboardUpdate.OnClientEvent:Connect(function(entries)
+	for i, row in ipairs(leaderboardRows) do
+		local entry = entries[i]
+		if entry then
+			row.Text = ("%d. %s -- %s pts, %s clicks"):format(
+				i, entry.username, NumberFormat.Format(entry.score), NumberFormat.Format(entry.totalClicks)
+			)
+			row.Visible = true
+		else
+			row.Visible = false
+		end
+	end
+	-- leaderboardPanel's AutomaticSize.Y grows/shrinks as rows become
+	-- visible here, which can change whether it's too close to
+	-- clickerPanel/navContainer -- re-check every time entries arrive, not
+	-- just on resize, since this is the only thing that changes the panel's
+	-- actual height (issue #40 review).
+	updateLeaderboardVisibility()
+end)
+
 -- AbsolutePosition/AbsoluteSize for freshly-created GuiObjects can read as
 -- zero on the very first Lua tick, before Roblox's first UI layout pass has
--- run -- re-check once that pass completes so a joiner on a large screen
--- can't get stuck with the leaderboard wrongly hidden for the rest of the
--- session if the window size never subsequently changes (issue #40).
+-- run -- re-check a few times over the next several frames (not just once)
+-- so a joiner on a large screen can't get stuck with the leaderboard
+-- wrongly hidden for the rest of the session if that first pass takes
+-- longer than a single frame and the window size never subsequently
+-- changes (issue #40 review).
 task.spawn(function()
-	RunService.Heartbeat:Wait()
-	updateLeaderboardVisibility()
+	for _ = 1, 5 do
+		RunService.Heartbeat:Wait()
+		updateLeaderboardVisibility()
+	end
 end)
 
 mainNavButton.MouseButton1Click:Connect(function()
