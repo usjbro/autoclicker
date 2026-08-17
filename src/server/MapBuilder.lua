@@ -319,19 +319,31 @@ local function buildMazeLevel(
 	originZ: number,
 	topY: number
 )
+	-- Precompute every cell's center once -- each interior cell's center
+	-- would otherwise be recomputed a second time when its west/north
+	-- neighbor's own bridge check looks it up, since mazeCellCenter is a
+	-- pure function of (x, z) already being called for every cell anyway.
+	local centersX: { [number]: { [number]: number } } = {}
+	local centersZ: { [number]: { [number]: number } } = {}
+	for x = 1, width do
+		centersX[x] = {}
+		centersZ[x] = {}
+		for z = 1, height do
+			centersX[x][z], centersZ[x][z] = mazeCellCenter(width, height, originX, originZ, x, z)
+		end
+	end
+
 	for x = 1, width do
 		for z = 1, height do
-			local cx, cz = mazeCellCenter(width, height, originX, originZ, x, z)
+			local cx, cz = centersX[x][z], centersZ[x][z]
 			createPlatform(folder, namePrefix .. "Cell" .. x .. "_" .. z, cx, topY, cz, MAZE_CELL_SIZE, MAZE_THICKNESS, MAZE_CELL_SIZE)
 
 			local cell = grid[x][z]
 			if cell.east and x < width then
-				local nx, _ = mazeCellCenter(width, height, originX, originZ, x + 1, z)
-				createPlatform(folder, namePrefix .. "Bridge" .. x .. "_" .. z .. "E", (cx + nx) / 2, topY, cz, MAZE_CELL_GAP + 4, MAZE_THICKNESS, MAZE_BRIDGE_WIDTH)
+				createPlatform(folder, namePrefix .. "Bridge" .. x .. "_" .. z .. "E", (cx + centersX[x + 1][z]) / 2, topY, cz, MAZE_CELL_GAP + 4, MAZE_THICKNESS, MAZE_BRIDGE_WIDTH)
 			end
 			if cell.south and z < height then
-				local _, nz = mazeCellCenter(width, height, originX, originZ, x, z + 1)
-				createPlatform(folder, namePrefix .. "Bridge" .. x .. "_" .. z .. "S", cx, topY, (cz + nz) / 2, MAZE_BRIDGE_WIDTH, MAZE_THICKNESS, MAZE_CELL_GAP + 4)
+				createPlatform(folder, namePrefix .. "Bridge" .. x .. "_" .. z .. "S", cx, topY, (cz + centersZ[x][z + 1]) / 2, MAZE_BRIDGE_WIDTH, MAZE_THICKNESS, MAZE_CELL_GAP + 4)
 			end
 		end
 	end
@@ -357,15 +369,38 @@ local function buildMazeShaft(
 	upperY: number,
 	direction: "+X" | "-X" | "+Z" | "-Z"
 )
+	-- direction must point away from the grid's interior, or the staircase
+	-- climbs straight back through this level's own cell platforms/bridges
+	-- instead of away from them -- fail loudly (caught by Build()'s pcall)
+	-- rather than silently building broken/overlapping geometry.
+	local isOutwardEdge = (direction == "+X" and cellX == width)
+		or (direction == "-X" and cellX == 1)
+		or (direction == "+Z" and cellZ == height)
+		or (direction == "-Z" and cellZ == 1)
+	assert(
+		isOutwardEdge,
+		string.format(
+			"buildMazeShaft: cell (%d, %d) with direction %s doesn't face outward on a %dx%d grid -- the staircase would run back through the grid",
+			cellX,
+			cellZ,
+			direction,
+			width,
+			height
+		)
+	)
+
 	local cx, cz = mazeCellCenter(width, height, originX, originZ, cellX, cellZ)
 	local axis: "X" | "Z" = if direction == "+X" or direction == "-X" then "X" else "Z"
 	local sign = if direction == "+X" or direction == "+Z" then 1 else -1
 
-	-- Gentle, 20-step climb (matches the shallow style of the hand-built
-	-- North/East/West zones' own ramps/stairs) sized to exactly cover
-	-- whatever the level-to-level height difference is.
-	local steps = 20
-	local stepRun = 6
+	-- 30-step climb sized to exactly cover the level-to-level height
+	-- difference. Steeper than NorthStair's own ramp/stair style (that one
+	-- optimizes for a grand, sweeping entrance; this is a narrower
+	-- connector, not meant to be another showcase climb) but each
+	-- individual step still only rises ~1.3 studs, comfortably within
+	-- Roblox's default auto-step-up range.
+	local steps = 30
+	local stepRun = 3
 	local stepRise = (upperY - lowerY) / steps
 
 	local landing = createStaircase(folder, namePrefix .. "Stair", Vector3.new(cx, lowerY, cz), axis, sign, steps, stepRun, stepRise, MAZE_CELL_SIZE)
@@ -424,7 +459,12 @@ function MapBuilder.Build(): (boolean, string?)
 
 		createArch(folder, "SouthGate", Vector3.new(0, 0, 28), "Z", 28, 20)
 		local mazeEntryX, mazeEntryZ = mazeCellCenter(MAZE_WIDTH, MAZE_HEIGHT, mazeOriginX, mazeOriginZ, 2, 1)
-		createRamp(folder, "SouthRamp", Vector3.new(0, 0, 35), Vector3.new(mazeEntryX, mazeLevel1Y, mazeEntryZ), 26, 3)
+		-- Narrower than the other zones' ramps (those land on 50-70-stud
+		-- platforms with plenty of room) -- this one lands on a single
+		-- MAZE_CELL_SIZE-wide maze cell, so its width has to stay safely
+		-- inside that footprint rather than overhanging into cell (1,1) or
+		-- (3,1) on either side.
+		createRamp(folder, "SouthRamp", Vector3.new(0, 0, 35), Vector3.new(mazeEntryX, mazeLevel1Y, mazeEntryZ), MAZE_CELL_SIZE - 4, 3)
 
 		local mazeLevel1 = generateMaze(MAZE_WIDTH, MAZE_HEIGHT, mazeRng)
 		local mazeLevel2 = generateMaze(MAZE_WIDTH, MAZE_HEIGHT, mazeRng)
