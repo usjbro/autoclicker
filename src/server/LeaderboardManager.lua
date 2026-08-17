@@ -133,6 +133,27 @@ function LeaderboardManager.Refresh(): {LeaderboardEntry}
 	return cachedLeaderboard
 end
 
+-- Per-player write serialization for the leaderboard OrderedDataStore. Each
+-- SaveScore call used to fire its own independent detached task.spawn'd
+-- SetAsync -- that guarantees an attempt, but not completion order. Two
+-- concurrent writes for the same player can land in either order depending
+-- on network timing, so a later, correct save could be silently overwritten
+-- by an earlier, now-stale one (e.g. a pre-Reset periodic-loop save)
+-- completing after it (issue #29). At most one SetAsync per player now runs
+-- at a time; a SaveScore call that arrives while one is already in flight
+-- just updates pendingSave, which the in-flight loop picks up once it's
+-- free -- so a given player's writes always apply in the order they were
+-- requested, and a burst of rapid calls (e.g. mashing "Reset Progress")
+-- coalesces into far fewer actual DataStore writes instead of one SetAsync
+-- per call.
+-- Like usernameCache/offlineTotalClicksCache above, these are never cleared
+-- on PlayerRemoving, so they grow by one entry per lifetime-unique player --
+-- accepted for the same reason those are: negligible per-entry cost, and
+-- explicit cleanup here would race the final SaveScore call PlayerRemoving
+-- itself makes, which can still be in flight after that handler returns.
+local saveInFlight: {[number]: boolean} = {}
+local pendingSave: {[number]: number} = {}
+
 -- Saves a player's score to the OrderedDataStore. Scores <= 0 are skipped by
 -- default so a player who joins and never plays doesn't get a spurious
 -- "0 score" entry on the leaderboard. Pass force = true to bypass that guard
@@ -146,13 +167,52 @@ function LeaderboardManager.SaveScore(player: Player, score: number, force: bool
 	local integerScore = math.floor(score)
 	if integerScore <= 0 and not force then return end
 
+	local userId = player.UserId
+	pendingSave[userId] = integerScore
+
+	if saveInFlight[userId] then
+		-- A write is already in progress for this player; it'll pick up this
+		-- (or an even newer, if more calls land before it's free) value from
+		-- pendingSave once it's done, instead of this call spawning a second
+		-- concurrent, unordered write.
+		return
+	end
+
+	saveInFlight[userId] = true
 	task.spawn(function()
-		local success, err = pcall(function()
-			LeaderboardStore:SetAsync(tostring(player.UserId), integerScore)
+		-- The whole loop runs inside one pcall, and saveInFlight is always
+		-- cleared right after regardless of outcome -- mirrors SessionLock.Run's
+		-- "pcall the critical section, always release after" idiom (see
+		-- SessionLock.lua). Without this, any error here that isn't the inner
+		-- SetAsync pcall already catches (e.g. from a future edit) would leave
+		-- saveInFlight[userId] stuck true forever, silently stranding that
+		-- player's leaderboard saves for the rest of the server's uptime, since
+		-- every subsequent SaveScore call would just keep updating pendingSave
+		-- without ever spawning a new save to consume it.
+		local ok, err = pcall(function()
+			local nextScore = pendingSave[userId]
+			while nextScore do
+				pendingSave[userId] = nil
+
+				local success, saveErr = pcall(function()
+					LeaderboardStore:SetAsync(tostring(userId), nextScore)
+				end)
+
+				if not success then
+					warn("Failed to save leaderboard score for " .. player.Name .. ": " .. tostring(saveErr))
+				end
+
+				-- Check again after the write completes: a call that landed
+				-- while this SetAsync was in flight left a newer value here to
+				-- pick up.
+				nextScore = pendingSave[userId]
+			end
 		end)
 
-		if not success then
-			warn("Failed to save leaderboard score for " .. player.Name .. ": " .. tostring(err))
+		saveInFlight[userId] = false
+
+		if not ok then
+			warn("Unexpected error in leaderboard save loop for " .. player.Name .. ": " .. tostring(err))
 		end
 	end)
 end
