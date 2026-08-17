@@ -3,7 +3,7 @@ return function()
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local GameLogic = require(ReplicatedStorage.Shared.GameLogic)
 
-	local function session(overrides)
+	local function session(overrides: { [string]: any }?)
 		local base = {
 			score = 0,
 			autoClickerCount = 0,
@@ -23,7 +23,13 @@ return function()
 
 	describe("GetDefaultSession", function()
 		it("should return the documented defaults", function()
-			expect(GameLogic.GetDefaultSession()).to.deep.equal(session())
+			-- TestEZ (vendored, v0.4.1) has no built-in deep-equal matcher, so
+			-- compare field by field, same as the equivalent Lune assertion in
+			-- test/gameLogic.test.luau.
+			local default = GameLogic.GetDefaultSession()
+			for key, value in pairs(session()) do
+				expect(default[key]).to.equal(value)
+			end
 		end)
 	end)
 
