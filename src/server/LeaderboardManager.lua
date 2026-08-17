@@ -146,6 +146,11 @@ end
 -- requested, and a burst of rapid calls (e.g. mashing "Reset Progress")
 -- coalesces into far fewer actual DataStore writes instead of one SetAsync
 -- per call.
+-- Like usernameCache/offlineTotalClicksCache above, these are never cleared
+-- on PlayerRemoving, so they grow by one entry per lifetime-unique player --
+-- accepted for the same reason those are: negligible per-entry cost, and
+-- explicit cleanup here would race the final SaveScore call PlayerRemoving
+-- itself makes, which can still be in flight after that handler returns.
 local saveInFlight: {[number]: boolean} = {}
 local pendingSave: {[number]: number} = {}
 
@@ -175,24 +180,40 @@ function LeaderboardManager.SaveScore(player: Player, score: number, force: bool
 
 	saveInFlight[userId] = true
 	task.spawn(function()
-		local nextScore = pendingSave[userId]
-		while nextScore do
-			pendingSave[userId] = nil
+		-- The whole loop runs inside one pcall, and saveInFlight is always
+		-- cleared right after regardless of outcome -- mirrors SessionLock.Run's
+		-- "pcall the critical section, always release after" idiom (see
+		-- SessionLock.lua). Without this, any error here that isn't the inner
+		-- SetAsync pcall already catches (e.g. from a future edit) would leave
+		-- saveInFlight[userId] stuck true forever, silently stranding that
+		-- player's leaderboard saves for the rest of the server's uptime, since
+		-- every subsequent SaveScore call would just keep updating pendingSave
+		-- without ever spawning a new save to consume it.
+		local ok, err = pcall(function()
+			local nextScore = pendingSave[userId]
+			while nextScore do
+				pendingSave[userId] = nil
 
-			local success, err = pcall(function()
-				LeaderboardStore:SetAsync(tostring(userId), nextScore)
-			end)
+				local success, saveErr = pcall(function()
+					LeaderboardStore:SetAsync(tostring(userId), nextScore)
+				end)
 
-			if not success then
-				warn("Failed to save leaderboard score for " .. player.Name .. ": " .. tostring(err))
+				if not success then
+					warn("Failed to save leaderboard score for " .. player.Name .. ": " .. tostring(saveErr))
+				end
+
+				-- Check again after the write completes: a call that landed
+				-- while this SetAsync was in flight left a newer value here to
+				-- pick up.
+				nextScore = pendingSave[userId]
 			end
-
-			-- Check again after the write completes: a call that landed while
-			-- this SetAsync was in flight left a newer value here to pick up.
-			nextScore = pendingSave[userId]
-		end
+		end)
 
 		saveInFlight[userId] = false
+
+		if not ok then
+			warn("Unexpected error in leaderboard save loop for " .. player.Name .. ": " .. tostring(err))
+		end
 	end)
 end
 
