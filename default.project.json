@@ -6,6 +6,9 @@
       "Shared": {
         "$path": "src/shared"
       },
+      "TestEZ": {
+        "$path": "src/Packages/TestEZ"
+      },
       "ClickEvent": {
         "$className": "RemoteEvent"
       },
