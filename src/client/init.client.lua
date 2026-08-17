@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -658,17 +659,37 @@ local currentScreen: Screen = "Clicker"
 -- The leaderboard panel is only ever shown alongside the Clicker HUD (never
 -- behind Shop/Settings, which are wide/tall enough on a small screen to
 -- reach into its top-right corner -- see createPopupWindow's size clamp),
--- and only when the screen has enough room for it not to visually collide
--- with the Clicker HUD or the bottom-right nav stack, both of which it can
--- plausibly get close to on a short or narrow screen. Re-evaluated on
--- resize, not just on screen switches, since a Studio window resize or a
--- device rotation doesn't fire setScreen.
-local LEADERBOARD_MIN_WIDTH = 550
-local LEADERBOARD_MIN_HEIGHT = 500
+-- and only when it won't visually collide with the Clicker HUD or the
+-- bottom-right nav stack, both of which it can plausibly get close to on a
+-- short or narrow screen. Re-evaluated on resize, not just on screen
+-- switches, since a Studio window resize or a device rotation doesn't fire
+-- setScreen.
+--
+-- Checks each panel's actual AbsolutePosition/AbsoluteSize rather than a
+-- fixed ScreenGui-size threshold -- a flat width/height threshold picked
+-- without accounting for exactly where each panel's UISizeConstraint clamp
+-- kicks in left a wide, common range of viewport widths (~550-900px) still
+-- overlapping in practice (issue #40). Roblox still computes
+-- AbsolutePosition/AbsoluteSize for a Visible = false GuiObject -- layout
+-- runs regardless of rendering -- so this works correctly even while
+-- leaderboardPanel itself is currently hidden.
+local LEADERBOARD_GAP = 12
+
+local function rectsTooClose(a: GuiObject, b: GuiObject, gap: number): boolean
+	local aPos, aSize = a.AbsolutePosition, a.AbsoluteSize
+	local bPos, bSize = b.AbsolutePosition, b.AbsoluteSize
+
+	local horizontalGap = math.max(bPos.X - (aPos.X + aSize.X), aPos.X - (bPos.X + bSize.X))
+	local verticalGap = math.max(bPos.Y - (aPos.Y + aSize.Y), aPos.Y - (bPos.Y + bSize.Y))
+
+	-- The two rects are separated (not too close) if either axis has at
+	-- least `gap` of clear space between their nearest edges.
+	return horizontalGap < gap and verticalGap < gap
+end
 
 local function updateLeaderboardVisibility()
-	local viewportSize = screenGui.AbsoluteSize
-	local roomAvailable = viewportSize.X >= LEADERBOARD_MIN_WIDTH and viewportSize.Y >= LEADERBOARD_MIN_HEIGHT
+	local roomAvailable = not rectsTooClose(leaderboardPanel, clickerPanel, LEADERBOARD_GAP)
+		and not rectsTooClose(leaderboardPanel, navContainer, LEADERBOARD_GAP)
 	leaderboardPanel.Visible = currentScreen == "Clicker" and roomAvailable
 end
 
@@ -688,6 +709,15 @@ end
 
 setScreen("Clicker")
 screenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateLeaderboardVisibility)
+-- AbsolutePosition/AbsoluteSize for freshly-created GuiObjects can read as
+-- zero on the very first Lua tick, before Roblox's first UI layout pass has
+-- run -- re-check once that pass completes so a joiner on a large screen
+-- can't get stuck with the leaderboard wrongly hidden for the rest of the
+-- session if the window size never subsequently changes (issue #40).
+task.spawn(function()
+	RunService.Heartbeat:Wait()
+	updateLeaderboardVisibility()
+end)
 
 mainNavButton.MouseButton1Click:Connect(function()
 	setScreen("Clicker")
