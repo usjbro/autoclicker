@@ -36,6 +36,11 @@
         "$path": "src/tests"
       }
     },
+    "ServerStorage": {
+      "TestEZ": {
+        "$path": "src/Packages/TestEZ"
+      }
+    },
     "StarterPlayer": {
       "StarterPlayerScripts": {
         "Gui": {
