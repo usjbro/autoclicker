@@ -207,6 +207,178 @@ local function createFloatingPlatform(
 	end
 end
 
+--------------------------------------------------------------------------------
+-- South zone: a multi-level, 3D-chess-style maze (issue #41). Each level is
+-- an independently generated perfect maze (recursive backtracker -- every
+-- cell reachable, no loops, exactly width*height-1 passages), stacked
+-- directly above the one below and connected by a staircase shaft in a
+-- different corner each transition, so reaching the top requires actually
+-- crossing each level's maze rather than climbing a single elevator column.
+-- Regenerated fresh every time Build() runs (a freshly-seeded Random() each
+-- server start, no stored seed -- no new persistent gameplay state), so the
+-- layout varies session to session.
+--------------------------------------------------------------------------------
+
+local MAZE_WIDTH = 4
+local MAZE_HEIGHT = 4
+local MAZE_CELL_SIZE = 14
+local MAZE_CELL_GAP = 6
+local MAZE_CELL_SPACING = MAZE_CELL_SIZE + MAZE_CELL_GAP
+local MAZE_BRIDGE_WIDTH = 6
+local MAZE_THICKNESS = 2
+
+-- Untyped-value cells ({[string]: boolean}, not a fixed record) so the
+-- carve loop below can index by a direction name held in a variable
+-- ("north"/"south"/"east"/"west") -- Luau's strict mode only allows dynamic
+-- string-keyed indexing against an index-signature type like this, not a
+-- record type with fixed field names.
+type MazeCell = { [string]: boolean }
+type MazeGrid = { [number]: { [number]: MazeCell } }
+
+-- The center point of grid cell (cellX, cellZ) in a width x height grid
+-- centered on (originX, originZ). Shared by every maze-geometry function
+-- below so they all agree on exactly the same cell positions.
+local function mazeCellCenter(width: number, height: number, originX: number, originZ: number, cellX: number, cellZ: number): (number, number)
+	local cx = originX + (cellX - (width + 1) / 2) * MAZE_CELL_SPACING
+	local cz = originZ + (cellZ - (height + 1) / 2) * MAZE_CELL_SPACING
+	return cx, cz
+end
+
+-- Randomized recursive backtracker (iterative, explicit stack -- doesn't
+-- rely on Luau's native call-stack depth for a larger grid): carves a
+-- perfect maze into a width x height grid. Cells are 1-indexed, {col, row},
+-- matching Lua array convention.
+local function generateMaze(width: number, height: number, rng: Random): MazeGrid
+	local grid: MazeGrid = {}
+	local visited: { [number]: { [number]: boolean } } = {}
+	for x = 1, width do
+		grid[x] = {}
+		visited[x] = {}
+		for z = 1, height do
+			grid[x][z] = { north = false, south = false, east = false, west = false }
+			visited[x][z] = false
+		end
+	end
+
+	local directions = {
+		{ dx = 0, dz = -1, from = "north", to = "south" },
+		{ dx = 0, dz = 1, from = "south", to = "north" },
+		{ dx = 1, dz = 0, from = "east", to = "west" },
+		{ dx = -1, dz = 0, from = "west", to = "east" },
+	}
+
+	local startX, startZ = rng:NextInteger(1, width), rng:NextInteger(1, height)
+	visited[startX][startZ] = true
+	local stack = { { x = startX, z = startZ } }
+
+	while #stack > 0 do
+		local current = stack[#stack]
+
+		-- Visit directions in a random order each time so the maze doesn't
+		-- develop a directional bias (Fisher-Yates shuffle of the 4 indices).
+		local order = { 1, 2, 3, 4 }
+		for i = 4, 2, -1 do
+			local j = rng:NextInteger(1, i)
+			order[i], order[j] = order[j], order[i]
+		end
+
+		local carved = false
+		for _, idx in ipairs(order) do
+			local dir = directions[idx]
+			local nx, nz = current.x + dir.dx, current.z + dir.dz
+			if nx >= 1 and nx <= width and nz >= 1 and nz <= height and not visited[nx][nz] then
+				grid[current.x][current.z][dir.from] = true
+				grid[nx][nz][dir.to] = true
+				visited[nx][nz] = true
+				table.insert(stack, { x = nx, z = nz })
+				carved = true
+				break
+			end
+		end
+
+		if not carved then
+			table.remove(stack)
+		end
+	end
+
+	return grid
+end
+
+-- Turns a generated maze grid into a platform per cell plus a bridge
+-- wherever the grid carved a passage. Only ever bridges toward east/south
+-- from each cell -- the matching west/north flag on the neighbor is set by
+-- the same carve, so checking one direction per pair is enough and avoids
+-- building the same bridge twice.
+local function buildMazeLevel(
+	folder: Folder,
+	namePrefix: string,
+	grid: MazeGrid,
+	width: number,
+	height: number,
+	originX: number,
+	originZ: number,
+	topY: number
+)
+	for x = 1, width do
+		for z = 1, height do
+			local cx, cz = mazeCellCenter(width, height, originX, originZ, x, z)
+			createPlatform(folder, namePrefix .. "Cell" .. x .. "_" .. z, cx, topY, cz, MAZE_CELL_SIZE, MAZE_THICKNESS, MAZE_CELL_SIZE)
+
+			local cell = grid[x][z]
+			if cell.east and x < width then
+				local nx, _ = mazeCellCenter(width, height, originX, originZ, x + 1, z)
+				createPlatform(folder, namePrefix .. "Bridge" .. x .. "_" .. z .. "E", (cx + nx) / 2, topY, cz, MAZE_CELL_GAP + 4, MAZE_THICKNESS, MAZE_BRIDGE_WIDTH)
+			end
+			if cell.south and z < height then
+				local _, nz = mazeCellCenter(width, height, originX, originZ, x, z + 1)
+				createPlatform(folder, namePrefix .. "Bridge" .. x .. "_" .. z .. "S", cx, topY, (cz + nz) / 2, MAZE_BRIDGE_WIDTH, MAZE_THICKNESS, MAZE_CELL_GAP + 4)
+			end
+		end
+	end
+end
+
+-- Connects the same (cellX, cellZ) grid coordinate between two vertically
+-- stacked maze levels with a staircase running outward from the grid --
+-- never back through it, which is why the caller must pick a shaft cell on
+-- an edge/corner and a `direction` pointing away from the grid's interior.
+-- Lands on a small platform that's then bridged back to the same cell one
+-- level up, so a small mismatch between the staircase's exact landing spot
+-- and the cell's own footprint can never leave a gap.
+local function buildMazeShaft(
+	folder: Folder,
+	namePrefix: string,
+	width: number,
+	height: number,
+	originX: number,
+	originZ: number,
+	cellX: number,
+	cellZ: number,
+	lowerY: number,
+	upperY: number,
+	direction: "+X" | "-X" | "+Z" | "-Z"
+)
+	local cx, cz = mazeCellCenter(width, height, originX, originZ, cellX, cellZ)
+	local axis: "X" | "Z" = if direction == "+X" or direction == "-X" then "X" else "Z"
+	local sign = if direction == "+X" or direction == "+Z" then 1 else -1
+
+	-- Gentle, 20-step climb (matches the shallow style of the hand-built
+	-- North/East/West zones' own ramps/stairs) sized to exactly cover
+	-- whatever the level-to-level height difference is.
+	local steps = 20
+	local stepRun = 6
+	local stepRise = (upperY - lowerY) / steps
+
+	local landing = createStaircase(folder, namePrefix .. "Stair", Vector3.new(cx, lowerY, cz), axis, sign, steps, stepRun, stepRise, MAZE_CELL_SIZE)
+	createPlatform(folder, namePrefix .. "Landing", landing.X, landing.Y, landing.Z, MAZE_CELL_SIZE, MAZE_THICKNESS, MAZE_CELL_SIZE)
+
+	local runLength = steps * stepRun
+	if axis == "X" then
+		createPlatform(folder, namePrefix .. "LandingBridge", (cx + landing.X) / 2, upperY, cz, runLength + 4, MAZE_THICKNESS, MAZE_BRIDGE_WIDTH)
+	else
+		createPlatform(folder, namePrefix .. "LandingBridge", cx, upperY, (cz + landing.Z) / 2, MAZE_BRIDGE_WIDTH, MAZE_THICKNESS, runLength + 4)
+	end
+end
+
 function MapBuilder.Build(): (boolean, string?)
 	local ok, err = pcall(function()
 		local folder = Instance.new("Folder")
@@ -240,6 +412,34 @@ function MapBuilder.Build(): (boolean, string?)
 		createArch(folder, "WestGate", Vector3.new(-28, 0, 0), "X", 28, 22)
 		createRamp(folder, "WestRamp", Vector3.new(-35, 0, 0), Vector3.new(-150, 26, 0), 28, 3)
 		createPlatform(folder, "PlatformC", -180, 26, 0, 60, 3, 60)
+
+		-- === South zone: multi-level 3D-chess-style maze (issue #41). Entry
+		-- gate/ramp mirrors the other three zones', landing at the near
+		-- edge of Level 1's maze; two staircase shafts (different corners,
+		-- both running further away from spawn so neither can cross back
+		-- through a grid) carry the path up through Level 2 to Level 3. ===
+		local mazeRng = Random.new()
+		local mazeOriginX, mazeOriginZ = 0, 150
+		local mazeLevel1Y, mazeLevel2Y, mazeLevel3Y = 20, 60, 100
+
+		createArch(folder, "SouthGate", Vector3.new(0, 0, 28), "Z", 28, 20)
+		local mazeEntryX, mazeEntryZ = mazeCellCenter(MAZE_WIDTH, MAZE_HEIGHT, mazeOriginX, mazeOriginZ, 2, 1)
+		createRamp(folder, "SouthRamp", Vector3.new(0, 0, 35), Vector3.new(mazeEntryX, mazeLevel1Y, mazeEntryZ), 26, 3)
+
+		local mazeLevel1 = generateMaze(MAZE_WIDTH, MAZE_HEIGHT, mazeRng)
+		local mazeLevel2 = generateMaze(MAZE_WIDTH, MAZE_HEIGHT, mazeRng)
+		local mazeLevel3 = generateMaze(MAZE_WIDTH, MAZE_HEIGHT, mazeRng)
+
+		buildMazeLevel(folder, "MazeL1", mazeLevel1, MAZE_WIDTH, MAZE_HEIGHT, mazeOriginX, mazeOriginZ, mazeLevel1Y)
+		buildMazeLevel(folder, "MazeL2", mazeLevel2, MAZE_WIDTH, MAZE_HEIGHT, mazeOriginX, mazeOriginZ, mazeLevel2Y)
+		buildMazeLevel(folder, "MazeL3", mazeLevel3, MAZE_WIDTH, MAZE_HEIGHT, mazeOriginX, mazeOriginZ, mazeLevel3Y)
+
+		-- Corner (MAZE_WIDTH, MAZE_HEIGHT) for the first shaft, the opposite
+		-- corner (1, MAZE_HEIGHT) for the second, so climbing from Level 1
+		-- to Level 3 forces crossing Level 2's maze from one side to the
+		-- other rather than landing right next to the next shaft up.
+		buildMazeShaft(folder, "MazeShaft1", MAZE_WIDTH, MAZE_HEIGHT, mazeOriginX, mazeOriginZ, MAZE_WIDTH, MAZE_HEIGHT, mazeLevel1Y, mazeLevel2Y, "+Z")
+		buildMazeShaft(folder, "MazeShaft2", MAZE_WIDTH, MAZE_HEIGHT, mazeOriginX, mazeOriginZ, 1, MAZE_HEIGHT, mazeLevel2Y, mazeLevel3Y, "+Z")
 
 		-- === Central decoration: a ring of pillars around spawn, just
 		-- outside SPAWN_CLEAR_RADIUS, so the hub reads as a landmark without
