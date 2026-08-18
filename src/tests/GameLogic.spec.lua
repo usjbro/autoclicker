@@ -14,6 +14,10 @@ return function()
 			totalClicks = 0,
 			useBaseSpeed = true,
 			speedSliderPercent = 100,
+			ownedWings = false,
+			ownedFlameTrail = false,
+			ownedLightTrail = false,
+			equippedCosmetic = "None",
 		}
 		for key, value in pairs(overrides or {}) do
 			base[key] = value
@@ -34,7 +38,7 @@ return function()
 	end)
 
 	describe("ResetProgress", function()
-		it("should zero score and upgrades but preserve clicks/rebirths/settings", function()
+		it("should zero score and upgrades but preserve clicks/rebirths/settings/items", function()
 			local before = session({
 				score = 5000,
 				autoClickerCount = 3,
@@ -45,6 +49,9 @@ return function()
 				totalClicks = 777,
 				useBaseSpeed = false,
 				speedSliderPercent = 42,
+				ownedWings = true,
+				ownedFlameTrail = true,
+				equippedCosmetic = "FlameTrail",
 			})
 			local after = GameLogic.ResetProgress(before)
 
@@ -57,18 +64,34 @@ return function()
 			expect(after.totalClicks).to.equal(777)
 			expect(after.useBaseSpeed).to.equal(false)
 			expect(after.speedSliderPercent).to.equal(42)
+			-- Items are owned until rebirth, not wiped by an ordinary Reset --
+			-- see PerformRebirth below, which does clear them.
+			expect(after.ownedWings).to.equal(true)
+			expect(after.ownedFlameTrail).to.equal(true)
+			expect(after.equippedCosmetic).to.equal("FlameTrail")
 		end)
 	end)
 
 	describe("PerformRebirth", function()
-		it("should reset progress and increment rebirthCount", function()
-			local before = session({ score = 20000, autoClickerCount = 5, rebirthCount = 1, totalClicks = 100 })
+		it("should reset progress, increment rebirthCount, and clear owned items", function()
+			local before = session({
+				score = 20000,
+				autoClickerCount = 5,
+				rebirthCount = 1,
+				totalClicks = 100,
+				ownedWings = true,
+				ownedLightTrail = true,
+				equippedCosmetic = "LightTrail",
+			})
 			local after = GameLogic.PerformRebirth(before)
 
 			expect(after.score).to.equal(0)
 			expect(after.autoClickerCount).to.equal(0)
 			expect(after.totalClicks).to.equal(100)
 			expect(after.rebirthCount).to.equal(2)
+			expect(after.ownedWings).to.equal(false)
+			expect(after.ownedLightTrail).to.equal(false)
+			expect(after.equippedCosmetic).to.equal("None")
 		end)
 	end)
 

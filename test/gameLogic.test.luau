@@ -43,6 +43,10 @@ local function session(overrides: { [string]: any }?)
 		totalClicks = 0,
 		useBaseSpeed = true,
 		speedSliderPercent = 100,
+		ownedWings = false,
+		ownedFlameTrail = false,
+		ownedLightTrail = false,
+		equippedCosmetic = "None",
 	}
 	for key, value in pairs(overrides or {}) do
 		base[key] = value
@@ -59,7 +63,7 @@ test("GetDefaultSession returns the documented defaults", function()
 	end
 end)
 
-test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/settings", function()
+test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/settings/items", function()
 	local before = session({
 		score = 5000,
 		autoClickerCount = 3,
@@ -70,6 +74,9 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 		totalClicks = 777,
 		useBaseSpeed = false,
 		speedSliderPercent = 42,
+		ownedWings = true,
+		ownedFlameTrail = true,
+		equippedCosmetic = "FlameTrail",
 	})
 	local after = GameLogic.ResetProgress(before)
 
@@ -82,16 +89,32 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 	assertEqual(after.totalClicks, 777, "totalClicks preserved")
 	assertEqual(after.useBaseSpeed, false, "useBaseSpeed preserved")
 	assertEqual(after.speedSliderPercent, 42, "speedSliderPercent preserved")
+	-- Items are owned until rebirth, not wiped by an ordinary Reset -- see
+	-- PerformRebirth below, which does clear them.
+	assertEqual(after.ownedWings, true, "ownedWings preserved")
+	assertEqual(after.ownedFlameTrail, true, "ownedFlameTrail preserved")
+	assertEqual(after.equippedCosmetic, "FlameTrail", "equippedCosmetic preserved")
 end)
 
-test("PerformRebirth does everything ResetProgress does, plus increments rebirthCount", function()
-	local before = session({ score = 20000, autoClickerCount = 5, rebirthCount = 1, totalClicks = 100 })
+test("PerformRebirth does everything ResetProgress does, plus increments rebirthCount and clears owned items", function()
+	local before = session({
+		score = 20000,
+		autoClickerCount = 5,
+		rebirthCount = 1,
+		totalClicks = 100,
+		ownedWings = true,
+		ownedLightTrail = true,
+		equippedCosmetic = "LightTrail",
+	})
 	local after = GameLogic.PerformRebirth(before)
 
 	assertEqual(after.score, 0, "score")
 	assertEqual(after.autoClickerCount, 0, "autoClickerCount")
 	assertEqual(after.totalClicks, 100, "totalClicks preserved")
 	assertEqual(after.rebirthCount, 2, "rebirthCount incremented")
+	assertEqual(after.ownedWings, false, "ownedWings cleared")
+	assertEqual(after.ownedLightTrail, false, "ownedLightTrail cleared")
+	assertEqual(after.equippedCosmetic, "None", "equippedCosmetic cleared")
 end)
 
 test("GetUpgradeCost returns the flat cost for each upgrade", function()

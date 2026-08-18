@@ -20,6 +20,10 @@ export type Session = {
 	totalClicks: number,
 	useBaseSpeed: boolean,
 	speedSliderPercent: number,
+	ownedWings: boolean,
+	ownedFlameTrail: boolean,
+	ownedLightTrail: boolean,
+	equippedCosmetic: "None" | "FlameTrail" | "LightTrail",
 }
 
 -- The single source of truth for what a blank session looks like: used both
@@ -35,27 +39,43 @@ function GameLogic.GetDefaultSession(): Session
 		totalClicks = 0,
 		useBaseSpeed = true,
 		speedSliderPercent = 100,
+		ownedWings = false,
+		ownedFlameTrail = false,
+		ownedLightTrail = false,
+		equippedCosmetic = "None",
 	}
 end
 
 -- Zeroes score + all upgrade counts, but preserves totalClicks (a lifetime
 -- achievement stat, not tied to movement speed -- see SpeedCalculator, which
 -- is score-based and so resets to base speed along with score), rebirthCount,
--- and speed preferences -- a progress reset shouldn't erase those. Used by
--- both the Reset and Rebirth handlers.
+-- speed preferences, and owned items (Wings/cosmetics survive an ordinary
+-- Reset -- they're only cleared by Rebirth, see PerformRebirth below) -- a
+-- progress reset shouldn't erase those. Used by both the Reset and Rebirth
+-- handlers.
 function GameLogic.ResetProgress(session: Session): Session
 	local reset = GameLogic.GetDefaultSession()
 	reset.rebirthCount = session.rebirthCount
 	reset.totalClicks = session.totalClicks
 	reset.useBaseSpeed = session.useBaseSpeed
 	reset.speedSliderPercent = session.speedSliderPercent
+	reset.ownedWings = session.ownedWings
+	reset.ownedFlameTrail = session.ownedFlameTrail
+	reset.ownedLightTrail = session.ownedLightTrail
+	reset.equippedCosmetic = session.equippedCosmetic
 	return reset
 end
 
--- Same as ResetProgress, plus incrementing rebirthCount.
+-- Same as ResetProgress, plus incrementing rebirthCount and clearing owned
+-- items -- unlike an ordinary Reset, a Rebirth does take Wings/cosmetics
+-- away (re-buyable afterward), by design.
 function GameLogic.PerformRebirth(session: Session): Session
 	local reset = GameLogic.ResetProgress(session)
 	reset.rebirthCount += 1
+	reset.ownedWings = false
+	reset.ownedFlameTrail = false
+	reset.ownedLightTrail = false
+	reset.equippedCosmetic = "None"
 	return reset
 end
 

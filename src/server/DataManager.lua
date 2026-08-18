@@ -63,6 +63,10 @@ local function loadByUserId(userId: number): GameLogic.Session?
 		totalClicks = fallback(result.totalClicks, defaultData.totalClicks),
 		useBaseSpeed = fallback(result.useBaseSpeed, defaultData.useBaseSpeed),
 		speedSliderPercent = fallback(result.speedSliderPercent, defaultData.speedSliderPercent),
+		ownedWings = fallback(result.ownedWings, defaultData.ownedWings),
+		ownedFlameTrail = fallback(result.ownedFlameTrail, defaultData.ownedFlameTrail),
+		ownedLightTrail = fallback(result.ownedLightTrail, defaultData.ownedLightTrail),
+		equippedCosmetic = fallback(result.equippedCosmetic, defaultData.equippedCosmetic),
 	}
 end
 

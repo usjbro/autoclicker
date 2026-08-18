@@ -24,6 +24,17 @@ local GameConstants = {
 		Threshold = 10000,
 		Bonus = 0.25,
 	},
+
+	-- One-time-owned items, distinct from UPGRADES above: buying one grants a
+	-- flag (session[field] = true), not a stacking count -- a second purchase
+	-- attempt is a no-op rather than a second stack. RobuxCost/DevProductId
+	-- follow the same placeholder-until-a-real-Developer-Product-exists
+	-- convention as UPGRADES.
+	ITEMS = {
+		Wings = { Cost = 2000, RobuxCost = 200, DevProductId = 0 },
+		FlameTrail = { Cost = 750, RobuxCost = 75, DevProductId = 0 },
+		LightTrail = { Cost = 750, RobuxCost = 75, DevProductId = 0 },
+	},
 }
 
 -- Maps each upgrade id to the session field it increments on purchase.
@@ -32,6 +43,14 @@ GameConstants.UPGRADE_FIELDS = {
 	MegaClicker = "megaClickerCount",
 	ClickPower = "clickPowerCount",
 	Multiplier = "multiplierCount",
+}
+
+-- Maps each ITEMS id to the boolean session field it sets on purchase --
+-- mirrors UPGRADE_FIELDS' shape for the one-time-owned items above.
+GameConstants.ITEM_FIELDS = {
+	Wings = "ownedWings",
+	FlameTrail = "ownedFlameTrail",
+	LightTrail = "ownedLightTrail",
 }
 
 return GameConstants

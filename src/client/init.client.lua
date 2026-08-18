@@ -18,6 +18,9 @@ local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
 local ResetEvent = ReplicatedStorage:WaitForChild("ResetEvent")
 local RebirthEvent = ReplicatedStorage:WaitForChild("RebirthEvent")
 local UpdateSpeedSettingsEvent = ReplicatedStorage:WaitForChild("UpdateSpeedSettingsEvent")
+local PurchaseItemEvent = ReplicatedStorage:WaitForChild("PurchaseItemEvent")
+local EquipCosmeticEvent = ReplicatedStorage:WaitForChild("EquipCosmeticEvent")
+local ActivateFlightEvent = ReplicatedStorage:WaitForChild("ActivateFlightEvent")
 local SyncState = ReplicatedStorage:WaitForChild("SyncState")
 local LeaderboardUpdate = ReplicatedStorage:WaitForChild("LeaderboardUpdate")
 
@@ -420,6 +423,97 @@ for i, upgrade in ipairs(UPGRADE_DISPLAY) do
 	})
 end
 
+--------------------------------------------------------------------------------
+-- Items: one-time-owned purchases (Wings, cosmetic trails), distinct from the
+-- stacking upgrades above -- PurchaseItemEvent instead of PurchaseEvent, an
+-- "Owned"/"Not owned" label instead of a level count, and (for the two
+-- cosmetics) an Equip toggle.
+--------------------------------------------------------------------------------
+
+-- Updated every SyncState tick below; read here by the Equip buttons' click
+-- handlers (declared before those closures so they capture this local, not
+-- a global) and by the flight-input binding further down.
+local lastKnownEquipped: "None" | "FlameTrail" | "LightTrail" = "None"
+local ownedWings = false
+
+local ITEM_DISPLAY = {
+	{ Id = "Wings", Name = "Wings", Description = "Grants a short flight burst -- press Space while airborne.", Cosmetic = false },
+	{ Id = "FlameTrail", Name = "Flame Trail", Description = "A fiery trail behind you as you move.", Cosmetic = true },
+	{ Id = "LightTrail", Name = "Light Trail", Description = "A glowing light trail behind you as you move.", Cosmetic = true },
+}
+
+local itemRows = {}
+
+for i, item in ipairs(ITEM_DISPLAY) do
+	local itemConstants = GameConstants.ITEMS[item.Id]
+
+	local card = Instance.new("Frame")
+	card.Name = item.Id .. "Card"
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	card.Size = UDim2.new(1, 0, 0, 0)
+	card.BackgroundColor3 = COLOR_PANEL
+	card.BorderSizePixel = 0
+	card.LayoutOrder = #UPGRADE_DISPLAY + i
+	card.Parent = shopContent
+	addCorner(card, 10)
+	addListLayout(card, 4)
+	addPadding(card, 10)
+
+	makeLabel(card, item.Name, 16, COLOR_TEXT, 1, true)
+	makeLabel(card, item.Description, 13, COLOR_TEXT_DIM, 2)
+	local ownedLabel = makeLabel(card, "Not owned", 14, COLOR_TEXT, 3)
+
+	local buttonsRow = Instance.new("Frame")
+	buttonsRow.AutomaticSize = Enum.AutomaticSize.Y
+	buttonsRow.Size = UDim2.new(1, 0, 0, 36)
+	buttonsRow.BackgroundTransparency = 1
+	buttonsRow.LayoutOrder = 4
+	buttonsRow.Parent = card
+	addListLayout(buttonsRow, UPGRADE_BUTTON_GAP, Enum.HorizontalAlignment.Left, Enum.FillDirection.Horizontal)
+
+	local ptsButton = makeButton(buttonsRow, ("Buy -- %s pts"):format(NumberFormat.Format(itemConstants.Cost)), UDim2.new(0, UPGRADE_BUTTON_WIDTH, 0, 36), COLOR_ACCENT)
+
+	local hasDevProduct = itemConstants.DevProductId ~= 0
+	local robuxButton = makeButton(
+		buttonsRow,
+		if hasDevProduct then "R$ " .. itemConstants.RobuxCost else "Coming soon",
+		UDim2.new(0, UPGRADE_BUTTON_WIDTH, 0, 36),
+		if hasDevProduct then COLOR_ROBUX else COLOR_ACCENT_DISABLED
+	)
+	robuxButton.AutoButtonColor = hasDevProduct
+	robuxButton.Active = hasDevProduct
+
+	ptsButton.MouseButton1Click:Connect(function()
+		PurchaseItemEvent:FireServer(item.Id)
+	end)
+
+	if hasDevProduct then
+		robuxButton.MouseButton1Click:Connect(function()
+			MarketplaceService:PromptProductPurchase(player, itemConstants.DevProductId)
+		end)
+	end
+
+	local equipButton = nil
+	if item.Cosmetic then
+		equipButton = makeButton(buttonsRow, "Equip", UDim2.new(0, UPGRADE_BUTTON_WIDTH, 0, 36), COLOR_PANEL)
+		equipButton.MouseButton1Click:Connect(function()
+			-- Toggle: equipping the already-equipped cosmetic unequips it
+			-- (back to "None") instead of being a no-op -- lastKnownEquipped
+			-- is updated every SyncState tick, see below.
+			EquipCosmeticEvent:FireServer(if lastKnownEquipped == item.Id then "None" else item.Id)
+		end)
+	end
+
+	table.insert(itemRows, {
+		Id = item.Id,
+		Field = GameConstants.ITEM_FIELDS[item.Id],
+		Cost = itemConstants.Cost,
+		PtsButton = ptsButton,
+		OwnedLabel = ownedLabel,
+		EquipButton = equipButton,
+	})
+end
+
 -- Rebirth card
 local rebirthCard = Instance.new("Frame")
 rebirthCard.Name = "RebirthCard"
@@ -783,9 +877,25 @@ end
 
 clickButton.MouseButton1Click:Connect(registerClick)
 
+-- Space does double duty: click (Clicker screen, on the ground) or a flight
+-- burst (owns Wings, airborne) -- airborne takes priority over clicking
+-- regardless of screen, since flight is a physical action tied to the
+-- character, not the currently-open UI panel. Client only ever fires
+-- ActivateFlightEvent on this trigger -- FlightSystem.TryActivate on the
+-- server is solely responsible for whether it's actually allowed (Wings
+-- ownership, cooldown) and what the burst does.
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
-	if input.KeyCode == Enum.KeyCode.Space and currentScreen == "Clicker" then
+	if input.KeyCode ~= Enum.KeyCode.Space then return end
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local isAirborne = humanoid ~= nil
+		and (humanoid:GetState() == Enum.HumanoidStateType.Freefall or humanoid:GetState() == Enum.HumanoidStateType.Jumping)
+
+	if ownedWings and isAirborne then
+		ActivateFlightEvent:FireServer()
+	elseif currentScreen == "Clicker" then
 		registerClick()
 	end
 end)
@@ -829,6 +939,41 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 			row.PtsButton.BackgroundColor3 = COLOR_ACCENT
 			row.PtsButton.AutoButtonColor = true
 			row.PtsButton.Active = true
+		end
+	end
+
+	lastKnownEquipped = state.equippedCosmetic
+	ownedWings = state.ownedWings
+
+	for _, row in ipairs(itemRows) do
+		local owned = state[row.Field]
+		local affordable = state.score >= row.Cost
+
+		if owned then
+			row.OwnedLabel.Text = "Owned"
+			row.PtsButton.Text = "Owned"
+			row.PtsButton.BackgroundColor3 = COLOR_ACCENT_DISABLED
+			row.PtsButton.AutoButtonColor = false
+			row.PtsButton.Active = false
+		else
+			row.OwnedLabel.Text = "Not owned"
+			row.PtsButton.Text = ("Buy -- %s pts"):format(NumberFormat.Format(row.Cost))
+			row.PtsButton.BackgroundColor3 = if affordable then COLOR_ACCENT else COLOR_ACCENT_DISABLED
+			row.PtsButton.AutoButtonColor = affordable
+			row.PtsButton.Active = affordable
+		end
+
+		if row.EquipButton then
+			local isEquipped = lastKnownEquipped == row.Id
+			row.EquipButton.Active = owned
+			row.EquipButton.AutoButtonColor = owned
+			if isEquipped then
+				row.EquipButton.Text = "Equipped"
+				row.EquipButton.BackgroundColor3 = COLOR_ACCENT
+			else
+				row.EquipButton.Text = "Equip"
+				row.EquipButton.BackgroundColor3 = if owned then COLOR_PANEL else COLOR_ACCENT_DISABLED
+			end
 		end
 	end
 

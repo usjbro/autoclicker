@@ -9,6 +9,8 @@ local DataManager = require(script.Parent:WaitForChild("DataManager"))
 local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManager"))
 local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseManager"))
 local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
+local CosmeticsSystem = require(script.Parent:WaitForChild("CosmeticsSystem"))
+local FlightSystem = require(script.Parent:WaitForChild("FlightSystem"))
 local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 
@@ -17,6 +19,9 @@ local PurchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
 local ResetEvent = ReplicatedStorage:WaitForChild("ResetEvent")
 local RebirthEvent = ReplicatedStorage:WaitForChild("RebirthEvent")
 local UpdateSpeedSettingsEvent = ReplicatedStorage:WaitForChild("UpdateSpeedSettingsEvent")
+local PurchaseItemEvent = ReplicatedStorage:WaitForChild("PurchaseItemEvent")
+local EquipCosmeticEvent = ReplicatedStorage:WaitForChild("EquipCosmeticEvent")
+local ActivateFlightEvent = ReplicatedStorage:WaitForChild("ActivateFlightEvent")
 local SyncState = ReplicatedStorage:WaitForChild("SyncState")
 
 -- Environment: a large black box encloses the whole play space so the
@@ -215,6 +220,63 @@ UpdateSpeedSettingsEvent.OnServerEvent:Connect(function(player, useBaseSpeed, sp
 	end)
 end)
 
+-- [SERVER] Handle one-time item purchases (Wings, cosmetic trails) -- a
+-- no-op if already owned or unaffordable, distinct from PurchaseEvent above
+-- (which increments a stacking count): this sets a boolean flag exactly
+-- once. FlameTrail/LightTrail don't auto-equip on purchase (a player may own
+-- both and want to keep their current pick) -- see EquipCosmeticEvent below.
+PurchaseItemEvent.OnServerEvent:Connect(function(player, itemId)
+	SessionStore.With(player.UserId, function(session)
+		if typeof(itemId) ~= "string" then return end
+		local field = GameConstants.ITEM_FIELDS[itemId]
+		if not field then return end
+		if session[field] then return end -- already owned
+
+		local item = GameConstants.ITEMS[itemId]
+		if not item then return end
+		if session.score >= item.Cost then
+			session.score -= item.Cost
+			session[field] = true
+			syncPlayer(player)
+		end
+	end)
+end)
+
+-- [SERVER] Handle switching which cosmetic trail (if any) is equipped.
+-- Explicit per-value branches (not a generic loop indexing Session by a
+-- dynamic field name) so each assigns a literal "None"/"FlameTrail"/
+-- "LightTrail" into equippedCosmetic's typed union -- a validated-at-runtime
+-- string variable wouldn't type-check being assigned there directly under
+-- --!strict.
+EquipCosmeticEvent.OnServerEvent:Connect(function(player, cosmeticId)
+	SessionStore.With(player.UserId, function(session)
+		if cosmeticId == "None" then
+			session.equippedCosmetic = "None"
+		elseif cosmeticId == "FlameTrail" and session.ownedFlameTrail then
+			session.equippedCosmetic = "FlameTrail"
+		elseif cosmeticId == "LightTrail" and session.ownedLightTrail then
+			session.equippedCosmetic = "LightTrail"
+		else
+			return
+		end
+
+		CosmeticsSystem.ApplyEquippedCosmetic(player, session)
+		syncPlayer(player)
+	end)
+end)
+
+-- [SERVER] Handle a flight-burst request. No arguments -- the client only
+-- ever asks to fly; FlightSystem.TryActivate is solely responsible for
+-- whether that's allowed (Wings ownership, cooldown) and what the burst
+-- actually does (duration/speed/direction), the same trust boundary as
+-- every other handler above. Nothing in the synced session changes on a
+-- successful activation, so no syncPlayer call is needed here.
+ActivateFlightEvent.OnServerEvent:Connect(function(player)
+	SessionStore.With(player.UserId, function(session)
+		FlightSystem.TryActivate(player, session)
+	end)
+end)
+
 -- Player Lifecycle
 Players.PlayerAdded:Connect(function(player)
 	-- DataManager.Load happens inside the lock (unlike every other handler,
@@ -293,5 +355,8 @@ RobuxPurchaseManager.Start(SessionStore, syncPlayer)
 
 -- Start Movement System (re-applies WalkSpeed on every character (re)spawn)
 MovementSystem.Start(SessionStore)
+
+-- Start Cosmetics System (re-applies the equipped trail on every character (re)spawn)
+CosmeticsSystem.Start(SessionStore)
 
 print("Autoclicker Server Initialized")
