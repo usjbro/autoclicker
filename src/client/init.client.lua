@@ -815,12 +815,20 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 		local owned = state[row.Field]
 		row.LevelLabel.Text = "Level: " .. owned
 
+		-- Active toggled alongside AutoButtonColor/BackgroundColor3 (matching
+		-- robuxButton's pattern above, the only button that already did this)
+		-- -- without it, a dimmed "can't afford" button was still fully
+		-- clickable, just silently no-op'd server-side (PurchaseEvent's own
+		-- score >= cost check), which reads as "did my click even register?"
+		-- rather than an actually-disabled button.
 		if state.score < row.Cost then
 			row.PtsButton.BackgroundColor3 = COLOR_ACCENT_DISABLED
 			row.PtsButton.AutoButtonColor = false
+			row.PtsButton.Active = false
 		else
 			row.PtsButton.BackgroundColor3 = COLOR_ACCENT
 			row.PtsButton.AutoButtonColor = true
+			row.PtsButton.Active = true
 		end
 	end
 
@@ -828,10 +836,12 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 		rebirthButton.Text = "Rebirth now!"
 		rebirthButton.BackgroundColor3 = COLOR_ACCENT
 		rebirthButton.AutoButtonColor = true
+		rebirthButton.Active = true
 	else
 		rebirthButton.Text = "Rebirth -- requires " .. NumberFormat.Format(GameConstants.REBIRTH.Threshold) .. " score"
 		rebirthButton.BackgroundColor3 = COLOR_ACCENT_DISABLED
 		rebirthButton.AutoButtonColor = false
+		rebirthButton.Active = false
 	end
 
 	-- Settings screen reflects the server-authoritative values, not local drag state.
