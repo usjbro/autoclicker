@@ -189,6 +189,15 @@ RebirthEvent.OnServerEvent:Connect(function(player)
 		if not GameLogic.CanRebirth(session) then return end
 
 		applyInPlace(session, GameLogic.PerformRebirth(session))
+		-- PerformRebirth clears owned items/equippedCosmetic in session data,
+		-- but that alone doesn't touch whatever Trail/ParticleEmitter is
+		-- already live on this player's currently-spawned character -- only
+		-- CharacterAdded and EquipCosmeticEvent otherwise call this. Without
+		-- it, a player who rebirths while a cosmetic is equipped would keep
+		-- visibly trailing it until their next respawn, even though the
+		-- server-authoritative session (and the Shop UI, via syncPlayer
+		-- below) already say it's gone.
+		CosmeticsSystem.ApplyEquippedCosmetic(player, session)
 		-- Force the leaderboard entry to reflect the wipe immediately --
 		-- otherwise a stale pre-rebirth score can linger until the player
 		-- earns points again (see issue #13).
