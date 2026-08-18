@@ -43,6 +43,10 @@ local function session(overrides: { [string]: any }?)
 		totalClicks = 0,
 		useBaseSpeed = true,
 		speedSliderPercent = 100,
+		completedMazeNorth = false,
+		completedMazeSouth = false,
+		completedMazeEast = false,
+		completedMazeWest = false,
 	}
 	for key, value in pairs(overrides or {}) do
 		base[key] = value
@@ -70,6 +74,8 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 		totalClicks = 777,
 		useBaseSpeed = false,
 		speedSliderPercent = 42,
+		completedMazeNorth = true,
+		completedMazeWest = true,
 	})
 	local after = GameLogic.ResetProgress(before)
 
@@ -82,16 +88,28 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 	assertEqual(after.totalClicks, 777, "totalClicks preserved")
 	assertEqual(after.useBaseSpeed, false, "useBaseSpeed preserved")
 	assertEqual(after.speedSliderPercent, 42, "speedSliderPercent preserved")
+	-- A maze completion bonus is a repeatable-per-run payoff (like an
+	-- upgrade), not a permanent unlock (like totalClicks/rebirthCount) --
+	-- see GameConstants.MAZE_GOALS's own comment.
+	assertEqual(after.completedMazeNorth, false, "completedMazeNorth cleared")
+	assertEqual(after.completedMazeWest, false, "completedMazeWest cleared")
 end)
 
 test("PerformRebirth does everything ResetProgress does, plus increments rebirthCount", function()
-	local before = session({ score = 20000, autoClickerCount = 5, rebirthCount = 1, totalClicks = 100 })
+	local before = session({
+		score = 20000,
+		autoClickerCount = 5,
+		rebirthCount = 1,
+		totalClicks = 100,
+		completedMazeEast = true,
+	})
 	local after = GameLogic.PerformRebirth(before)
 
 	assertEqual(after.score, 0, "score")
 	assertEqual(after.autoClickerCount, 0, "autoClickerCount")
 	assertEqual(after.totalClicks, 100, "totalClicks preserved")
 	assertEqual(after.rebirthCount, 2, "rebirthCount incremented")
+	assertEqual(after.completedMazeEast, false, "completedMazeEast cleared")
 end)
 
 test("GetUpgradeCost returns the flat cost for each upgrade", function()
@@ -168,6 +186,34 @@ test("CalculateIdleGain combines both tiers and applies the multiplier over a mi
 	)
 	-- (2*1 + 1*10) * 1.1 = 13.2
 	assertNear(result, 13.2, 1e-9, "combined idle gain")
+end)
+
+test("CalculateMazeBonusRate is 0 with no completed mazes", function()
+	assertEqual(GameLogic.CalculateMazeBonusRate(session()), 0, "no mazes completed")
+end)
+
+test("CalculateMazeBonusRate returns the matching reward for a single completed maze", function()
+	assertEqual(GameLogic.CalculateMazeBonusRate(session({ completedMazeNorth = true })), 10, "North")
+	assertEqual(GameLogic.CalculateMazeBonusRate(session({ completedMazeSouth = true })), 20, "South")
+	assertEqual(GameLogic.CalculateMazeBonusRate(session({ completedMazeEast = true })), 100, "East")
+	assertEqual(GameLogic.CalculateMazeBonusRate(session({ completedMazeWest = true })), 100000, "West")
+end)
+
+test("CalculateMazeBonusRate sums rewards across multiple completed mazes", function()
+	local result = GameLogic.CalculateMazeBonusRate(session({
+		completedMazeNorth = true,
+		completedMazeEast = true,
+	}))
+	assertEqual(result, 110, "North + East")
+end)
+
+test("CalculateIdleGain adds completed-maze bonuses into the rate, subject to the same multiplier", function()
+	local result = GameLogic.CalculateIdleGain(
+		session({ completedMazeNorth = true, multiplierCount = 1 }),
+		60
+	)
+	-- 10 * 1.1 = 11
+	assertNear(result, 11, 1e-9, "idle gain with a completed maze")
 end)
 
 print("NumberFormat")
