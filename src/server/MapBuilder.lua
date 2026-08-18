@@ -760,25 +760,34 @@ local function buildMazeWing(mapFolder: Folder, wingName: string, direction: Maz
 	-- the top-of-file comment). CanTouch left at its default (true) on the
 	-- pad itself so a player's Humanoid overlapping it fires Touched; the
 	-- beacon is a pure visual accent and explicitly can't.
+	--
+	-- Painted white, and created AFTER paintWing runs (not before) so the
+	-- repaint pass -- which recolors every Neon descendant to the wing's own
+	-- trimColor -- can never touch it. It's the same fixed color across all
+	-- four wings on purpose: a goal blending into whichever trim color that
+	-- wing happens to use (every platform edge, pillar cap, and arch lintel
+	-- is also Neon) would fail at the one job this marker has -- reading as
+	-- a unique landmark, not just more of the wing's own decoration.
+	paintWing(folder, config)
+
 	local topY = MAZE_BASE_Y + (config.levelCount - 1) * MAZE_LEVEL_HEIGHT
 	local goalX, goalZ = mazeCellCenter(direction, entryCol, config.gridDepth, config.gridWidth)
+	local GOAL_COLOR = Color3.fromHex("ffffff")
 	newPart(folder, wingName .. "Goal", {
 		Size = Vector3.new(MAZE_CELL_SIZE - 4, 0.6, MAZE_CELL_SIZE - 4),
 		CFrame = CFrame.new(goalX, topY + 0.3, goalZ),
-		Color = ACCENT,
+		Color = GOAL_COLOR,
 		Material = Enum.Material.Neon,
 		CanCollide = false,
 	})
 	newPart(folder, wingName .. "GoalBeacon", {
 		Size = Vector3.new(2, MAZE_WALL_HEIGHT - 1, 2),
 		CFrame = CFrame.new(goalX, topY + (MAZE_WALL_HEIGHT - 1) / 2, goalZ),
-		Color = ACCENT,
+		Color = GOAL_COLOR,
 		Material = Enum.Material.Neon,
 		CanCollide = false,
 		CanTouch = false,
 	})
-
-	paintWing(folder, config)
 end
 
 function MapBuilder.Build(): (boolean, string?)

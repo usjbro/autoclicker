@@ -49,6 +49,8 @@ return function()
 				totalClicks = 777,
 				useBaseSpeed = false,
 				speedSliderPercent = 42,
+				completedMazeNorth = true,
+				completedMazeWest = true,
 			})
 			local after = GameLogic.ResetProgress(before)
 
@@ -61,18 +63,30 @@ return function()
 			expect(after.totalClicks).to.equal(777)
 			expect(after.useBaseSpeed).to.equal(false)
 			expect(after.speedSliderPercent).to.equal(42)
+			-- A maze completion bonus is a repeatable-per-run payoff (like an
+			-- upgrade), not a permanent unlock (like totalClicks/rebirthCount) --
+			-- see GameConstants.MAZE_GOALS's own comment.
+			expect(after.completedMazeNorth).to.equal(false)
+			expect(after.completedMazeWest).to.equal(false)
 		end)
 	end)
 
 	describe("PerformRebirth", function()
 		it("should reset progress and increment rebirthCount", function()
-			local before = session({ score = 20000, autoClickerCount = 5, rebirthCount = 1, totalClicks = 100 })
+			local before = session({
+				score = 20000,
+				autoClickerCount = 5,
+				rebirthCount = 1,
+				totalClicks = 100,
+				completedMazeEast = true,
+			})
 			local after = GameLogic.PerformRebirth(before)
 
 			expect(after.score).to.equal(0)
 			expect(after.autoClickerCount).to.equal(0)
 			expect(after.totalClicks).to.equal(100)
 			expect(after.rebirthCount).to.equal(2)
+			expect(after.completedMazeEast).to.equal(false)
 		end)
 	end)
 

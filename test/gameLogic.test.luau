@@ -74,6 +74,8 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 		totalClicks = 777,
 		useBaseSpeed = false,
 		speedSliderPercent = 42,
+		completedMazeNorth = true,
+		completedMazeWest = true,
 	})
 	local after = GameLogic.ResetProgress(before)
 
@@ -86,16 +88,28 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 	assertEqual(after.totalClicks, 777, "totalClicks preserved")
 	assertEqual(after.useBaseSpeed, false, "useBaseSpeed preserved")
 	assertEqual(after.speedSliderPercent, 42, "speedSliderPercent preserved")
+	-- A maze completion bonus is a repeatable-per-run payoff (like an
+	-- upgrade), not a permanent unlock (like totalClicks/rebirthCount) --
+	-- see GameConstants.MAZE_GOALS's own comment.
+	assertEqual(after.completedMazeNorth, false, "completedMazeNorth cleared")
+	assertEqual(after.completedMazeWest, false, "completedMazeWest cleared")
 end)
 
 test("PerformRebirth does everything ResetProgress does, plus increments rebirthCount", function()
-	local before = session({ score = 20000, autoClickerCount = 5, rebirthCount = 1, totalClicks = 100 })
+	local before = session({
+		score = 20000,
+		autoClickerCount = 5,
+		rebirthCount = 1,
+		totalClicks = 100,
+		completedMazeEast = true,
+	})
 	local after = GameLogic.PerformRebirth(before)
 
 	assertEqual(after.score, 0, "score")
 	assertEqual(after.autoClickerCount, 0, "autoClickerCount")
 	assertEqual(after.totalClicks, 100, "totalClicks preserved")
 	assertEqual(after.rebirthCount, 2, "rebirthCount incremented")
+	assertEqual(after.completedMazeEast, false, "completedMazeEast cleared")
 end)
 
 test("GetUpgradeCost returns the flat cost for each upgrade", function()

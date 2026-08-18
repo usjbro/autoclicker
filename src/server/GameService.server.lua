@@ -118,6 +118,17 @@ end
 -- Session is a fixed-field record type, not an index-signature type, so a
 -- dynamic-key lookup wouldn't type-check under --!strict (same reasoning as
 -- GameLogic.CalculateMazeBonusRate).
+--
+-- Known accepted gap: unlike every RemoteEvent handler above, this trusts a
+-- physics Touched event with no server-side check on how the toucher got
+-- there. Characters are client-owned for network physics by default, so a
+-- modified client could in principle move its own character to overlap a
+-- distant goal part without walking the maze, granting that wing's reward
+-- (up to West's 100,000/min) for free -- the same class of risk this
+-- codebase's roblox-security-review skill flags for every other player-
+-- reachable trigger. Full mitigation (server-side path verification) is out
+-- of proportion for a hobby project; noted here so it's a deliberate
+-- tradeoff, not an oversight, if this ever needs revisiting.
 local function wireMazeGoal(
 	mapFolder: Instance,
 	partName: string,
