@@ -22,6 +22,12 @@ local ACCENT = Color3.fromHex("6c5ce7")
 -- VoidSpawn sits at the origin (see GameService.server.lua); keep a clear
 -- radius around it so nothing built here ever overlaps a spawning player.
 local SPAWN_CLEAR_RADIUS = 32
+-- How far outside SPAWN_CLEAR_RADIUS the spawn ring's own pillars sit --
+-- shared by the ring-building code and assertMazeConstants below (which
+-- checks every maze gate clears the ring, not just SPAWN_CLEAR_RADIUS
+-- itself) so the two can't silently desync the way MAZE_GATE_SPAN's old
+-- hardcoded duplicate could.
+local SPAWN_RING_PADDING = 4
 
 type PartOverrides = { [string]: any }
 
@@ -225,29 +231,79 @@ end
 -- climbing a single elevator column. Regenerated fresh every time Build()
 -- runs (a freshly-seeded Random() each server start, no stored seed -- no
 -- new persistent gameplay state), so the layout varies session to session.
+--
+-- Each level's floor is one continuous platform (not one per cell) --
+-- connectivity between cells is expressed entirely by walls, not by gaps in
+-- the floor. An earlier version of this maze left a gap wherever two cells
+-- weren't connected and relied on the gap alone to block movement; a
+-- Roblox character can trivially jump a few studs, so that let a player run
+-- straight from one side of the maze to the other by jumping every gap in a
+-- beeline, ignoring the generated path entirely. MAZE_WALL_HEIGHT below is
+-- picked to comfortably exceed Roblox's default jump height, so every
+-- non-open connection is now a genuine wall, not just an inconvenience.
 --------------------------------------------------------------------------------
 
-local MAZE_GRID_WIDTH = 5 -- cells across, lateral (perpendicular to a wing's outward direction)
-local MAZE_GRID_DEPTH = 8 -- cells deep, outward from spawn
-local MAZE_CELL_SIZE = 14
-local MAZE_CELL_GAP = 6
-local MAZE_CELL_SPACING = MAZE_CELL_SIZE + MAZE_CELL_GAP
-local MAZE_BRIDGE_WIDTH = 6
-local MAZE_THICKNESS = 2
+local MAZE_GRID_WIDTH = 7 -- cells across, lateral (perpendicular to a wing's outward direction)
+local MAZE_GRID_DEPTH = 16 -- cells deep, outward from spawn
+local MAZE_CELL_SIZE = 18 -- also each cell's run length before the next wall/junction
+local MAZE_CELL_SPACING = MAZE_CELL_SIZE -- cells touch edge-to-edge -- floor is contiguous, walls (not gaps) carve the maze
+local MAZE_WALL_THICKNESS = 2
+-- A corridor's containment comes from the ceiling (see buildMazeLevel),
+-- not from making the walls tall enough that they supposedly can't be
+-- jumped or seen over -- that turned out not to hold up in practice (a
+-- player could still get over/see over a 12-stud wall), and "tall enough"
+-- isn't something a wall alone can ever fully guarantee against a
+-- controllable 3rd-person camera anyway. The wall's height only needs to
+-- reach the ceiling with no gap, so nothing can slip sideways between a
+-- wall's top and the ceiling's underside.
+local MAZE_WALL_HEIGHT = 16
+local MAZE_THICKNESS = 2 -- floor/ceiling thickness
 local MAZE_LEVEL_COUNT = 3
 local MAZE_BASE_Y = 20 -- Level 1's walkable height
 local MAZE_LEVEL_HEIGHT = 40 -- vertical gap between consecutive levels
 
 -- Depths (distance from the origin, along a wing's own outward axis) for
 -- its gate, the ground-level start of its entry ramp, and Level 1's near
--- row -- in that order, each a bit further out than the last. GATE_DEPTH is
--- chosen so a gate's pillars (span 28, so offset sqrt(14^2 + GATE_DEPTH^2)
--- from the origin) clear both SPAWN_CLEAR_RADIUS and the spawn ring's own
--- radius (SPAWN_CLEAR_RADIUS + 4) with real margin -- the previous South
--- zone's gate didn't (see issue #51), so this wasn't repeated here.
+-- row -- in that order, each a bit further out than the last, sized so the
+-- entry ramp's slope (rise MAZE_BASE_Y over run ENTRY_DEPTH - CELL_SIZE/2 -
+-- RAMP_START_DEPTH) comes out close to 14 degrees, matching the gentle
+-- slope every ramp elsewhere in this file already uses.
 local MAZE_GATE_DEPTH = 50
-local MAZE_RAMP_START_DEPTH = 55
-local MAZE_ENTRY_DEPTH = 100
+local MAZE_GATE_SPAN = 28 -- passed to createArch below; also what the clearance check derives from
+local MAZE_RAMP_START_DEPTH = 75
+local MAZE_ENTRY_DEPTH = 160
+
+-- GATE_DEPTH is chosen so a gate's pillars (span MAZE_GATE_SPAN, so offset
+-- sqrt((MAZE_GATE_SPAN/2)^2 + GATE_DEPTH^2) from the origin) clear both
+-- SPAWN_CLEAR_RADIUS and the spawn ring's own radius (SPAWN_CLEAR_RADIUS +
+-- SPAWN_RING_PADDING) with real margin -- the previous South zone's gate
+-- didn't (see issue #51). Checked in assertMazeConstants below (called
+-- from inside Build()'s pcall, not at module load) so a future edit to any
+-- of these constants that breaks this fails loudly but gracefully --
+-- caught and warn()'d like every other Build() failure, not an uncaught
+-- error that would blow up the require() call in GameService.server.lua
+-- and take down every RemoteEvent handler in the game, not just the map.
+local function assertMazeConstants()
+	assert(
+		math.sqrt((MAZE_GATE_SPAN / 2) ^ 2 + MAZE_GATE_DEPTH ^ 2) > SPAWN_CLEAR_RADIUS + SPAWN_RING_PADDING + 2,
+		"MAZE_GATE_DEPTH too small: gate pillars would sit inside the spawn ring's clearance"
+	)
+	-- A level's ceiling spans [topY + WALL_HEIGHT, topY + WALL_HEIGHT +
+	-- THICKNESS] (buildMazeFloor's topY parameter is a surface, the part
+	-- extends *down* from it by THICKNESS); the next level's floor spans
+	-- [topY + LEVEL_HEIGHT - THICKNESS, topY + LEVEL_HEIGHT] for the same
+	-- reason. Avoiding interpenetration needs the ceiling's top at or below
+	-- the next floor's bottom, i.e. LEVEL_HEIGHT >= WALL_HEIGHT +
+	-- 2*THICKNESS (one THICKNESS for the ceiling's own depth, one for the
+	-- floor's) -- true today only because 40 > 16 + 2*2 happens to hold; a
+	-- future taller-wall or tighter-stacking edit could silently make two
+	-- levels' floor/ceiling plates interpenetrate with no error, just
+	-- players clipping/stuck in Studio.
+	assert(
+		MAZE_LEVEL_HEIGHT > MAZE_WALL_HEIGHT + 2 * MAZE_THICKNESS,
+		"MAZE_LEVEL_HEIGHT too small: a level's ceiling would collide with the next level's floor"
+	)
+end
 
 -- Untyped-value cells ({[string]: boolean}, not a fixed record) so the
 -- carve loop below can index by a direction name held in a variable
@@ -258,21 +314,47 @@ type MazeCell = { [string]: boolean }
 type MazeGrid = { [number]: { [number]: MazeCell } }
 type MazeDirection = "+X" | "-X" | "+Z" | "-Z"
 
+-- Which world axis is "depth" for each compass direction, and which sign
+-- along that axis is "outward" -- the single source of truth every other
+-- maze function below reads from, instead of each re-deriving its own
+-- "is this direction X or Z" / "is it + or -" ternary (three independent,
+-- easy-to-desync copies of the same fact, before this table existed).
+local MAZE_DIRECTION_INFO: { [MazeDirection]: { axis: "X" | "Z", sign: number } } = {
+	["+Z"] = { axis = "Z", sign = 1 },
+	["-Z"] = { axis = "Z", sign = -1 },
+	["+X"] = { axis = "X", sign = 1 },
+	["-X"] = { axis = "X", sign = -1 },
+}
+
 -- Maps a wing-local (lateral, depth) offset -- lateral perpendicular to the
 -- wing's outward direction, depth increasing away from spawn -- into world
 -- X/Z. This one function is what lets every other maze function below be
 -- written once and reused for all four compass wings instead of a
 -- copy-pasted block per direction.
 local function mazeLocalToWorld(direction: MazeDirection, lateral: number, depth: number): (number, number)
-	if direction == "+Z" then
-		return lateral, depth
-	elseif direction == "-Z" then
-		return lateral, -depth
-	elseif direction == "+X" then
-		return depth, lateral
+	local info = MAZE_DIRECTION_INFO[direction]
+	local signedDepth = info.sign * depth
+	if info.axis == "Z" then
+		return lateral, signedDepth
 	else
-		return -depth, lateral
+		return signedDepth, lateral
 	end
+end
+
+-- The lateral offset of grid column `col`, centered on the grid's own
+-- width -- factored out of mazeCellCenter so buildMazeWing's entry-ramp
+-- landing and buildMazeWall (which each need this same lateral value at a
+-- different depth than any actual cell's center) don't have to duplicate
+-- the formula.
+local function mazeLateralOffset(col: number): number
+	return (col - (MAZE_GRID_WIDTH + 1) / 2) * MAZE_CELL_SPACING
+end
+
+-- The depth offset of grid row `row`, 0 at row 1 (nearest spawn) and
+-- increasing outward -- mirrors mazeLateralOffset for the same reason
+-- (shared by mazeCellCenter and buildMazeWall).
+local function mazeDepthOffset(row: number): number
+	return (row - 1) * MAZE_CELL_SPACING
 end
 
 -- The center of grid cell (col, row) in a wing extending in `direction`
@@ -280,9 +362,7 @@ end
 -- 1..MAZE_GRID_DEPTH (1 = nearest spawn). Shared by every maze-geometry
 -- function below so they all agree on exactly the same cell positions.
 local function mazeCellCenter(direction: MazeDirection, col: number, row: number): (number, number)
-	local lateral = (col - (MAZE_GRID_WIDTH + 1) / 2) * MAZE_CELL_SPACING
-	local depth = MAZE_ENTRY_DEPTH + (row - 1) * MAZE_CELL_SPACING
-	return mazeLocalToWorld(direction, lateral, depth)
+	return mazeLocalToWorld(direction, mazeLateralOffset(col), MAZE_ENTRY_DEPTH + mazeDepthOffset(row))
 end
 
 -- Randomized recursive backtracker (iterative, explicit stack -- doesn't
@@ -346,39 +426,144 @@ local function generateMaze(width: number, height: number, rng: Random): MazeGri
 	return grid
 end
 
--- A platform connecting two adjacent cell centers, oriented automatically
--- by whichever world axis they actually differ along -- a "col+1" (lateral)
--- neighbor and a "row+1" (depth) neighbor differ along different world axes
--- depending on the wing's direction, so this can't be hardcoded to "X gap,
--- Z width" the way a single fixed-orientation zone could.
-local function buildMazeBridge(folder: Folder, name: string, topY: number, x1: number, z1: number, x2: number, z2: number)
+-- A platform connecting two axis-aligned points, oriented automatically by
+-- whichever world axis they actually differ along. Currently only used by
+-- buildMazeShaft, to bridge a staircase's landing (past the floor's outer
+-- edge) back to the floor itself.
+local function buildMazeBridge(folder: Folder, name: string, topY: number, x1: number, z1: number, x2: number, z2: number, width: number)
+	local dx, dz = x2 - x1, z2 - z1
+	assert(dx == 0 or dz == 0, "buildMazeBridge: endpoints aren't axis-aligned")
 	local midX, midZ = (x1 + x2) / 2, (z1 + z2) / 2
-	if math.abs(x2 - x1) > math.abs(z2 - z1) then
-		createPlatform(folder, name, midX, topY, midZ, MAZE_CELL_GAP + 4, MAZE_THICKNESS, MAZE_BRIDGE_WIDTH)
+	-- +4 so the bridge overlaps each endpoint by a couple of studs instead
+	-- of meeting it exactly -- guards against a razor-thin gap from a
+	-- caller's endpoint being a hair short of the actual target surface.
+	local length = math.abs(dx) + math.abs(dz) + 4
+	if math.abs(dx) > math.abs(dz) then
+		createPlatform(folder, name, midX, topY, midZ, length, MAZE_THICKNESS, width)
 	else
-		createPlatform(folder, name, midX, topY, midZ, MAZE_BRIDGE_WIDTH, MAZE_THICKNESS, MAZE_CELL_GAP + 4)
+		createPlatform(folder, name, midX, topY, midZ, width, MAZE_THICKNESS, length)
 	end
 end
 
--- Turns a generated maze grid into a platform per cell plus a bridge
--- wherever the grid carved a passage. Only ever bridges toward east/south
--- from each cell -- the matching west/north flag on the neighbor is set by
--- the same carve, so checking one direction per pair is enough and avoids
--- building the same bridge twice.
-local function buildMazeLevel(folder: Folder, namePrefix: string, grid: MazeGrid, direction: MazeDirection, topY: number)
+-- One continuous platform spanning a whole level's grid -- cell connectivity
+-- is expressed entirely by walls (see buildMazeWall/buildMazeLevel below),
+-- not by gaps in the floor, so the floor itself never needs to be
+-- segmented per cell.
+local function buildMazeFloor(folder: Folder, name: string, direction: MazeDirection, topY: number)
+	-- Span from the first cell's near edge to the last cell's far edge:
+	-- (N-1) center-to-center spacings between them, plus one more half-cell
+	-- on each end. Written in terms of MAZE_CELL_SPACING (matching
+	-- mazeLateralOffset/mazeDepthOffset, which every wall and cell position
+	-- is already computed from) rather than N * MAZE_CELL_SIZE, which only
+	-- happens to give the same answer today because MAZE_CELL_SPACING is
+	-- currently defined equal to MAZE_CELL_SIZE -- if a gap were ever
+	-- reintroduced between cells (redefining SPACING > SIZE, which is
+	-- exactly what SPACING existed for before this file's walls replaced
+	-- floor gaps), N * MAZE_CELL_SIZE would undershoot the real extent and
+	-- leave the outermost walls floating past the floor's actual edge.
+	local lateralExtent = (MAZE_GRID_WIDTH - 1) * MAZE_CELL_SPACING + MAZE_CELL_SIZE
+	local depthExtent = (MAZE_GRID_DEPTH - 1) * MAZE_CELL_SPACING + MAZE_CELL_SIZE
+	local depthCenter = MAZE_ENTRY_DEPTH + (MAZE_GRID_DEPTH - 1) * MAZE_CELL_SPACING / 2
+	local cx, cz = mazeLocalToWorld(direction, 0, depthCenter)
+	if MAZE_DIRECTION_INFO[direction].axis == "Z" then
+		createPlatform(folder, name, cx, topY, cz, lateralExtent, MAZE_THICKNESS, depthExtent)
+	else
+		createPlatform(folder, name, cx, topY, cz, depthExtent, MAZE_THICKNESS, lateralExtent)
+	end
+end
+
+-- A wall segment blocking movement across one edge of grid cell (col, row):
+-- `edgeKind` "lateral" for its east (edgeSign 1) or west (edgeSign -1) edge,
+-- "depth" for its south (1) or north (-1) edge. MAZE_WALL_HEIGHT
+-- comfortably exceeds Roblox's default jump height, so -- unlike the gap
+-- the very first version of this maze relied on -- a wall can't just be
+-- jumped over; every non-open connection is genuinely impassable.
+local function buildMazeWall(folder: Folder, name: string, direction: MazeDirection, topY: number, col: number, row: number, edgeKind: "lateral" | "depth", edgeSign: number)
+	local lateral = mazeLateralOffset(col)
+	local depth = MAZE_ENTRY_DEPTH + mazeDepthOffset(row)
+	if edgeKind == "lateral" then
+		lateral += edgeSign * MAZE_CELL_SIZE / 2
+	else
+		depth += edgeSign * MAZE_CELL_SIZE / 2
+	end
+	local wx, wz = mazeLocalToWorld(direction, lateral, depth)
+
+	-- The wall's long dimension runs along whichever local axis it *isn't*
+	-- blocking (a lateral-facing wall spans the cell's full depth-wise
+	-- footprint; a depth-facing wall spans its full lateral-wise footprint),
+	-- translated to world X/Z the same way every other maze part is.
+	local sizeAlongDepth = if edgeKind == "lateral" then MAZE_CELL_SIZE else MAZE_WALL_THICKNESS
+	local sizeAlongLateral = if edgeKind == "lateral" then MAZE_WALL_THICKNESS else MAZE_CELL_SIZE
+	local axis = MAZE_DIRECTION_INFO[direction].axis
+	local sizeX = if axis == "X" then sizeAlongDepth else sizeAlongLateral
+	local sizeZ = if axis == "Z" then sizeAlongDepth else sizeAlongLateral
+
+	newPart(folder, name, {
+		Size = Vector3.new(sizeX, MAZE_WALL_HEIGHT, sizeZ),
+		CFrame = CFrame.new(wx, topY + MAZE_WALL_HEIGHT / 2, wz),
+		Color = DARK,
+	})
+end
+
+type MazeOpenEdge = { col: number, edge: "north" | "south" }
+
+-- Builds one level's floor plus a wall on every grid edge that isn't a
+-- carved passage: an internal edge between two cells gets a wall exactly
+-- when the maze didn't connect them; every edge on the grid's own boundary
+-- (its four sides) gets a wall too, except the specific (col, "north"/
+-- "south") points listed in `openEdges`. Three distinct things put a point
+-- in that list (see buildMazeWing): the entry ramp's landing cell (a
+-- "north" opening, Level 1 only), a shaft's landing bridging back INTO a
+-- level from below (a "south" opening), and a shaft departing UPWARD from
+-- a level (also a "south" opening, at that shaft's own starting cell --
+-- easy to forget since there's no "landing" involved, just the top of the
+-- staircase this level's own buildMazeShaft call builds). The grid's
+-- east/west boundaries are always fully walled -- nothing in this
+-- design ever enters or exits a level from the side.
+local function buildMazeLevel(folder: Folder, namePrefix: string, grid: MazeGrid, direction: MazeDirection, topY: number, openEdges: { MazeOpenEdge })
+	local function isOpen(col: number, edge: "north" | "south"): boolean
+		for _, opening in ipairs(openEdges) do
+			if opening.col == col and opening.edge == edge then
+				return true
+			end
+		end
+		return false
+	end
+
+	buildMazeFloor(folder, namePrefix .. "Floor", direction, topY)
+	-- A solid ceiling with its underside flush against every wall's top
+	-- (no gap for anything to slip sideways through) is what actually
+	-- contains a player, not wall height alone -- see MAZE_WALL_HEIGHT's
+	-- comment. Reuses buildMazeFloor's own footprint math unchanged, just
+	-- at a higher topY, since a ceiling is geometrically identical to the
+	-- floor -- one continuous plate spanning the whole grid.
+	buildMazeFloor(folder, namePrefix .. "Ceiling", direction, topY + MAZE_WALL_HEIGHT + MAZE_THICKNESS)
+
 	for col = 1, MAZE_GRID_WIDTH do
 		for row = 1, MAZE_GRID_DEPTH do
-			local cx, cz = mazeCellCenter(direction, col, row)
-			createPlatform(folder, namePrefix .. "Cell" .. col .. "_" .. row, cx, topY, cz, MAZE_CELL_SIZE, MAZE_THICKNESS, MAZE_CELL_SIZE)
-
 			local cell = grid[col][row]
-			if cell.east and col < MAZE_GRID_WIDTH then
-				local nx, nz = mazeCellCenter(direction, col + 1, row)
-				buildMazeBridge(folder, namePrefix .. "Bridge" .. col .. "_" .. row .. "E", topY, cx, cz, nx, nz)
+
+			-- col == MAZE_GRID_WIDTH (the boundary) always walls, regardless
+			-- of cell.east -- there's no east neighbor to have carved a
+			-- passage into.
+			if col == MAZE_GRID_WIDTH or not cell.east then
+				buildMazeWall(folder, namePrefix .. "Wall" .. col .. "_" .. row .. "E", direction, topY, col, row, "lateral", 1)
 			end
-			if cell.south and row < MAZE_GRID_DEPTH then
-				local nx, nz = mazeCellCenter(direction, col, row + 1)
-				buildMazeBridge(folder, namePrefix .. "Bridge" .. col .. "_" .. row .. "S", topY, cx, cz, nx, nz)
+
+			if col == 1 then
+				buildMazeWall(folder, namePrefix .. "Wall" .. col .. "_" .. row .. "W", direction, topY, col, row, "lateral", -1)
+			end
+
+			if row < MAZE_GRID_DEPTH then
+				if not cell.south then
+					buildMazeWall(folder, namePrefix .. "Wall" .. col .. "_" .. row .. "S", direction, topY, col, row, "depth", 1)
+				end
+			elseif not isOpen(col, "south") then
+				buildMazeWall(folder, namePrefix .. "Wall" .. col .. "_" .. row .. "S", direction, topY, col, row, "depth", 1)
+			end
+
+			if row == 1 and not isOpen(col, "north") then
+				buildMazeWall(folder, namePrefix .. "Wall" .. col .. "_" .. row .. "N", direction, topY, col, row, "depth", -1)
 			end
 		end
 	end
@@ -386,22 +571,28 @@ end
 
 -- Connects grid column `col`'s farthest-row cell between two vertically
 -- stacked levels of the same wing with a staircase running further outward
--- (never back through the grid -- always safe by construction here, since a
--- wing's shafts only ever start at its own farthest row and climb further
--- along the same outward direction the whole wing already extends in).
+-- (never back through the grid -- true by construction as long as `col` is
+-- actually a valid column, asserted below, since a wing's shafts only ever
+-- start at its own farthest row and climb further along the same outward
+-- direction the whole wing already extends in).
 -- Lands on a small platform that's then bridged back to the same cell one
 -- level up, so a small mismatch between the staircase's exact landing spot
 -- and the cell's own footprint can never leave a gap.
 local function buildMazeShaft(folder: Folder, namePrefix: string, direction: MazeDirection, col: number, lowerY: number, upperY: number)
+	assert(
+		col >= 1 and col <= MAZE_GRID_WIDTH,
+		string.format("buildMazeShaft: col %d is out of range [1, %d]", col, MAZE_GRID_WIDTH)
+	)
+
 	local cx, cz = mazeCellCenter(direction, col, MAZE_GRID_DEPTH)
-	local axis: "X" | "Z" = if direction == "+X" or direction == "-X" then "X" else "Z"
-	local sign = if direction == "+X" or direction == "+Z" then 1 else -1
+	local info = MAZE_DIRECTION_INFO[direction]
+	local axis, sign = info.axis, info.sign
 
 	-- createStaircase's origin must be the near edge of the first step, not
-	-- the cell's center (see its own doc comment, and NorthStair's call in
-	-- the pre-#41-expansion version of this file, which passed a platform's
-	-- edge) -- otherwise the first couple of steps land inside the shaft
-	-- cell's own footprint instead of starting cleanly at its outward edge.
+	-- the cell's center (see its own doc comment) -- every ramp/staircase in
+	-- this file lands at a target's edge, not its center, otherwise the
+	-- first couple of steps land inside the shaft cell's own footprint
+	-- instead of starting cleanly at its outward edge.
 	local edgeX = if axis == "X" then cx + sign * (MAZE_CELL_SIZE / 2) else cx
 	local edgeZ = if axis == "Z" then cz + sign * (MAZE_CELL_SIZE / 2) else cz
 
@@ -415,28 +606,27 @@ local function buildMazeShaft(folder: Folder, namePrefix: string, direction: Maz
 	local landing = createStaircase(folder, namePrefix .. "Stair", Vector3.new(edgeX, lowerY, edgeZ), axis, sign, steps, stepRun, stepRise, MAZE_CELL_SIZE)
 	createPlatform(folder, namePrefix .. "Landing", landing.X, landing.Y, landing.Z, MAZE_CELL_SIZE, MAZE_THICKNESS, MAZE_CELL_SIZE)
 
-	-- The actual cell-center-to-landing distance the bridge below has to
-	-- span, not just the staircase's own run -- it also has to cover the
-	-- half-cell gap between the cell's center and edgeX/edgeZ where the
-	-- staircase itself started.
-	local runLength = steps * stepRun + MAZE_CELL_SIZE / 2
-	if axis == "X" then
-		createPlatform(folder, namePrefix .. "LandingBridge", (cx + landing.X) / 2, upperY, cz, runLength + 4, MAZE_THICKNESS, MAZE_BRIDGE_WIDTH)
-	else
-		createPlatform(folder, namePrefix .. "LandingBridge", cx, upperY, (cz + landing.Z) / 2, MAZE_BRIDGE_WIDTH, MAZE_THICKNESS, runLength + 4)
-	end
+	-- Bridges all the way back to the cell's own center, not just to the
+	-- floor's nearer edge -- deliberately overlapping the floor itself by a
+	-- few studs (harmless: two coplanar walkable surfaces) so a small
+	-- mismatch between the staircase's exact landing spot and the cell's
+	-- own footprint can never leave a gap. The upper level's own wall-carve
+	-- must leave this same cell/edge open (see buildMazeWing's openEdges)
+	-- or this bridge would just dead-end into a wall.
+	buildMazeBridge(folder, namePrefix .. "LandingBridge", upperY, cx, cz, landing.X, landing.Z, MAZE_CELL_SIZE)
 end
 
 -- Builds one complete wing: entry gate + ramp near spawn, MAZE_LEVEL_COUNT
--- independently generated maze levels, and a shaft connecting each
--- consecutive pair of levels. The two shafts alternate between the grid's
--- two lateral edges (col 1, then col MAZE_GRID_WIDTH) so climbing from the
--- bottom to the top forces crossing each intermediate level from one side
--- to the other, rather than landing right next to the next shaft up.
+-- independently generated maze levels (each fully walled in except its
+-- designated opening(s) -- see openEdges below), and a shaft connecting
+-- each consecutive pair of levels. The shafts alternate between the grid's
+-- two lateral edges (col 1, then col MAZE_GRID_WIDTH, and so on) so
+-- climbing from the bottom to the top forces crossing each intermediate
+-- level from one side to the other, rather than landing right next to the
+-- next shaft up.
 local function buildMazeWing(folder: Folder, wingName: string, direction: MazeDirection, rng: Random)
-	local gateAxis: "X" | "Z" = if direction == "+X" or direction == "-X" then "X" else "Z"
 	local gateX, gateZ = mazeLocalToWorld(direction, 0, MAZE_GATE_DEPTH)
-	createArch(folder, wingName .. "Gate", Vector3.new(gateX, 0, gateZ), gateAxis, 28, 20)
+	createArch(folder, wingName .. "Gate", Vector3.new(gateX, 0, gateZ), MAZE_DIRECTION_INFO[direction].axis, MAZE_GATE_SPAN, 20)
 
 	local rampOriginX, rampOriginZ = mazeLocalToWorld(direction, 0, MAZE_RAMP_START_DEPTH)
 	local entryCol = math.ceil((MAZE_GRID_WIDTH + 1) / 2)
@@ -444,32 +634,49 @@ local function buildMazeWing(folder: Folder, wingName: string, direction: MazeDi
 	-- center would bury half the ramp slab inside the flat cell platform
 	-- instead of meeting it cleanly at the boundary (see issue #40/#50's
 	-- south-zone review for the same class of mistake).
-	local entryLateral = (entryCol - (MAZE_GRID_WIDTH + 1) / 2) * MAZE_CELL_SPACING
-	local entryEdgeX, entryEdgeZ = mazeLocalToWorld(direction, entryLateral, MAZE_ENTRY_DEPTH - MAZE_CELL_SIZE / 2)
+	local entryEdgeX, entryEdgeZ = mazeLocalToWorld(direction, mazeLateralOffset(entryCol), MAZE_ENTRY_DEPTH - MAZE_CELL_SIZE / 2)
 	-- Narrower than a full cell width so it can't overhang into the
 	-- entry column's neighboring cells on either side.
 	createRamp(folder, wingName .. "Ramp", Vector3.new(rampOriginX, 0, rampOriginZ), Vector3.new(entryEdgeX, MAZE_BASE_Y, entryEdgeZ), MAZE_CELL_SIZE - 4, 3)
 
-	local levels: { MazeGrid } = {}
-	for i = 1, MAZE_LEVEL_COUNT do
-		levels[i] = generateMaze(MAZE_GRID_WIDTH, MAZE_GRID_DEPTH, rng)
+	-- shaftCols[i] is the column shaft i (connecting level i to level i+1)
+	-- uses -- needed by both loops below, so computed once up front: each
+	-- level's wall-carve has to leave the same column open that the actual
+	-- shaft touching it (above and/or below) uses.
+	local shaftCols = {}
+	for i = 1, MAZE_LEVEL_COUNT - 1 do
+		shaftCols[i] = if i % 2 == 1 then 1 else MAZE_GRID_WIDTH
 	end
 
 	for i = 1, MAZE_LEVEL_COUNT do
+		local openEdges: { MazeOpenEdge } = {}
+		if i == 1 then
+			table.insert(openEdges, { col = entryCol, edge = "north" })
+		else
+			-- Where shaft i-1's landing bridges back in from below.
+			table.insert(openEdges, { col = shaftCols[i - 1], edge = "south" })
+		end
+		if shaftCols[i] then
+			-- Where shaft i departs upward from this level.
+			table.insert(openEdges, { col = shaftCols[i], edge = "south" })
+		end
+
 		local topY = MAZE_BASE_Y + (i - 1) * MAZE_LEVEL_HEIGHT
-		buildMazeLevel(folder, wingName .. "L" .. i, levels[i], direction, topY)
+		local grid = generateMaze(MAZE_GRID_WIDTH, MAZE_GRID_DEPTH, rng)
+		buildMazeLevel(folder, wingName .. "L" .. i, grid, direction, topY, openEdges)
 	end
 
 	for i = 1, MAZE_LEVEL_COUNT - 1 do
-		local shaftCol = if i % 2 == 1 then 1 else MAZE_GRID_WIDTH
 		local lowerY = MAZE_BASE_Y + (i - 1) * MAZE_LEVEL_HEIGHT
 		local upperY = MAZE_BASE_Y + i * MAZE_LEVEL_HEIGHT
-		buildMazeShaft(folder, wingName .. "Shaft" .. i, direction, shaftCol, lowerY, upperY)
+		buildMazeShaft(folder, wingName .. "Shaft" .. i, direction, shaftCols[i], lowerY, upperY)
 	end
 end
 
 function MapBuilder.Build(): (boolean, string?)
 	local ok, err = pcall(function()
+		assertMazeConstants()
+
 		local folder = Instance.new("Folder")
 		folder.Name = "Map"
 		folder.Parent = workspace
@@ -485,26 +692,36 @@ function MapBuilder.Build(): (boolean, string?)
 
 		-- === Central decoration: a ring of pillars around spawn, just
 		-- outside SPAWN_CLEAR_RADIUS, so the hub reads as a landmark without
-		-- ever overlapping a spawning player. ===
-		local ringRadius = SPAWN_CLEAR_RADIUS + 4
+		-- ever overlapping a spawning player. Offset 15 degrees off the
+		-- cardinal angles (0/90/180/270, i.e. the four wings' own gate
+		-- corridors, all at lateral=0) -- 6 pillars every 60 degrees would
+		-- otherwise put one directly on the East and West gates' approach
+		-- centerline (a real bug found by review: a player walking straight
+		-- toward either gate would run straight into a pillar first). North/
+		-- South weren't affected (90/270 aren't multiples of 60), but the
+		-- offset is applied uniformly since it costs nothing and removes the
+		-- whole class of "does some multiple of 60 degrees hit a multiple of
+		-- 90" coincidence instead of relying on it not mattering by luck. ===
+		local ringRadius = SPAWN_CLEAR_RADIUS + SPAWN_RING_PADDING
 		local pillarCount = 6
+		local ringAngleOffset = math.rad(15)
 		for i = 0, pillarCount - 1 do
-			local angle = (i / pillarCount) * math.pi * 2
+			local angle = (i / pillarCount) * math.pi * 2 + ringAngleOffset
 			local x = math.cos(angle) * ringRadius
 			local z = math.sin(angle) * ringRadius
 			createPillar(folder, "SpawnRingPillar" .. i, Vector3.new(x, 0, z), 14, 4)
 		end
 
 		-- === Background decoration: purely visual floating platforms, high
-		-- up and non-collidable, scattered around the perimeter to give the
-		-- skyline some silhouettes without being reachable or blocking
-		-- movement. Positioned outside every wing's lateral footprint
-		-- (+-47 studs either side of its own outward axis) so none of them
-		-- sit inside a wing's own airspace. ===
-		createFloatingPlatform(folder, "SkylineA", Vector3.new(-90, 70, -230), 30, 2.5, 20, false)
-		createFloatingPlatform(folder, "SkylineB", Vector3.new(260, 95, -90), 22, 2.5, 22, false)
-		createFloatingPlatform(folder, "SkylineC", Vector3.new(-270, 80, 90), 26, 2.5, 18, false)
-		createFloatingPlatform(folder, "SkylineD", Vector3.new(90, 110, 300), 20, 2.5, 26, false)
+		-- up and non-collidable, positioned just past the tip of each wing
+		-- and off to the side (outside its +-63-stud lateral footprint) so
+		-- they read as distant skyline silhouettes beyond where the maze
+		-- actually ends, rather than sitting awkwardly close to the middle
+		-- of it. Not reachable and don't block movement. ===
+		createFloatingPlatform(folder, "SkylineA", Vector3.new(-150, 90, -600), 30, 2.5, 20, false)
+		createFloatingPlatform(folder, "SkylineB", Vector3.new(600, 120, -150), 22, 2.5, 22, false)
+		createFloatingPlatform(folder, "SkylineC", Vector3.new(-600, 100, 150), 26, 2.5, 18, false)
+		createFloatingPlatform(folder, "SkylineD", Vector3.new(150, 140, 600), 20, 2.5, 26, false)
 	end)
 	if not ok then
 		return false, tostring(err)
