@@ -429,9 +429,20 @@ end
 -- not by gaps in the floor, so the floor itself never needs to be
 -- segmented per cell.
 local function buildMazeFloor(folder: Folder, name: string, direction: MazeDirection, topY: number)
-	local lateralExtent = MAZE_GRID_WIDTH * MAZE_CELL_SIZE
-	local depthExtent = MAZE_GRID_DEPTH * MAZE_CELL_SIZE
-	local depthCenter = MAZE_ENTRY_DEPTH + (MAZE_GRID_DEPTH - 1) * MAZE_CELL_SIZE / 2
+	-- Span from the first cell's near edge to the last cell's far edge:
+	-- (N-1) center-to-center spacings between them, plus one more half-cell
+	-- on each end. Written in terms of MAZE_CELL_SPACING (matching
+	-- mazeLateralOffset/mazeDepthOffset, which every wall and cell position
+	-- is already computed from) rather than N * MAZE_CELL_SIZE, which only
+	-- happens to give the same answer today because MAZE_CELL_SPACING is
+	-- currently defined equal to MAZE_CELL_SIZE -- if a gap were ever
+	-- reintroduced between cells (redefining SPACING > SIZE, which is
+	-- exactly what SPACING existed for before this file's walls replaced
+	-- floor gaps), N * MAZE_CELL_SIZE would undershoot the real extent and
+	-- leave the outermost walls floating past the floor's actual edge.
+	local lateralExtent = (MAZE_GRID_WIDTH - 1) * MAZE_CELL_SPACING + MAZE_CELL_SIZE
+	local depthExtent = (MAZE_GRID_DEPTH - 1) * MAZE_CELL_SPACING + MAZE_CELL_SIZE
+	local depthCenter = MAZE_ENTRY_DEPTH + (MAZE_GRID_DEPTH - 1) * MAZE_CELL_SPACING / 2
 	local cx, cz = mazeLocalToWorld(direction, 0, depthCenter)
 	if MAZE_DIRECTION_INFO[direction].axis == "Z" then
 		createPlatform(folder, name, cx, topY, cz, lateralExtent, MAZE_THICKNESS, depthExtent)
