@@ -108,6 +108,59 @@ local function applyInPlace(session: GameLogic.Session, newValues: GameLogic.Ses
 	end
 end
 
+-- Maze completion rewards: wired here, not in MapBuilder.lua (which stays
+-- pure geometry -- see its own top-of-file comment), by finding each wing's
+-- named goal part under workspace.Map (recursive find -- goal parts live
+-- inside each wing's own sub-Folder, not directly under Map) and listening
+-- for a player's character to touch it. isCompleted/grant are per-wing
+-- closures over one concrete Session field each, rather than a generic loop
+-- indexing Session by a dynamic string key from GameConstants.MAZE_GOALS --
+-- Session is a fixed-field record type, not an index-signature type, so a
+-- dynamic-key lookup wouldn't type-check under --!strict (same reasoning as
+-- GameLogic.CalculateMazeBonusRate).
+local function wireMazeGoal(
+	mapFolder: Instance,
+	partName: string,
+	isCompleted: (GameLogic.Session) -> boolean,
+	grant: (GameLogic.Session) -> ()
+)
+	local goalPart = mapFolder:FindFirstChild(partName, true)
+	if not goalPart or not goalPart:IsA("BasePart") then return end
+
+	goalPart.Touched:Connect(function(hit: BasePart)
+		local character = hit.Parent
+		if not character then return end
+		local player = Players:GetPlayerFromCharacter(character)
+		if not player then return end
+
+		SessionStore.With(player.UserId, function(session)
+			-- Already granted -- also doubles as the debounce, since Touched
+			-- can fire repeatedly while a player stands on the pad; the
+			-- second and later fires just no-op here.
+			if isCompleted(session) then return end
+			grant(session)
+			syncPlayer(player)
+			-- Durable immediately, same reasoning as Reset/Rebirth: a rare,
+			-- valuable, hard-won grant shouldn't be lost to an unclean
+			-- disconnect before the next natural save.
+			DataManager.Save(player, session)
+		end)
+	end)
+end
+
+-- Only attempted if the map actually built -- MapBuilder.Build() already
+-- warned above if it didn't, and there's nothing to wire goals to in that
+-- case.
+if mapOk then
+	local mapFolder = workspace:FindFirstChild("Map")
+	if mapFolder then
+		wireMazeGoal(mapFolder, "MazeNGoal", function(s) return s.completedMazeNorth end, function(s) s.completedMazeNorth = true end)
+		wireMazeGoal(mapFolder, "MazeSGoal", function(s) return s.completedMazeSouth end, function(s) s.completedMazeSouth = true end)
+		wireMazeGoal(mapFolder, "MazeEGoal", function(s) return s.completedMazeEast end, function(s) s.completedMazeEast = true end)
+		wireMazeGoal(mapFolder, "MazeWGoal", function(s) return s.completedMazeWest end, function(s) s.completedMazeWest = true end)
+	end
+end
+
 -- Every handler below that touches a player's session goes through
 -- SessionStore (which itself routes through SessionLock), since several of
 -- these can yield on a DataStore call mid-operation (Save, in particular) --
