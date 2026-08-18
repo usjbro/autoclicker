@@ -15,6 +15,9 @@
 -- primary material).
 local MapBuilder = {}
 
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+local MazeGeometry = require(Shared:WaitForChild("MazeGeometry"))
+
 local DARK = Color3.fromHex("1e1e2f")
 local PANEL = Color3.fromHex("2a2a3f")
 local ACCENT = Color3.fromHex("6c5ce7")
@@ -251,8 +254,12 @@ end
 -- non-open connection is now a genuine wall, not just an inconvenience.
 --------------------------------------------------------------------------------
 
-local MAZE_CELL_SIZE = 18 -- also each cell's run length before the next wall/junction
-local MAZE_CELL_SPACING = MAZE_CELL_SIZE -- cells touch edge-to-edge -- floor is contiguous, walls (not gaps) carve the maze
+-- Geometry constants/math below are rebound from MazeGeometry.lua (the
+-- single source of truth, kept there so it's independently Lune-testable --
+-- see test/mazeGeometry.test.luau) rather than redefined here, so every
+-- downstream use in this file is unchanged.
+local MAZE_CELL_SIZE = MazeGeometry.CELL_SIZE -- also each cell's run length before the next wall/junction
+local MAZE_CELL_SPACING = MazeGeometry.CELL_SPACING -- cells touch edge-to-edge -- floor is contiguous, walls (not gaps) carve the maze
 local MAZE_WALL_THICKNESS = 2
 -- A corridor's containment comes from the ceiling (see buildMazeLevel),
 -- not from making the walls tall enough that they supposedly can't be
@@ -262,10 +269,10 @@ local MAZE_WALL_THICKNESS = 2
 -- controllable 3rd-person camera anyway. The wall's height only needs to
 -- reach the ceiling with no gap, so nothing can slip sideways between a
 -- wall's top and the ceiling's underside.
-local MAZE_WALL_HEIGHT = 16
-local MAZE_THICKNESS = 2 -- floor/ceiling thickness
-local MAZE_BASE_Y = 20 -- Level 1's walkable height
-local MAZE_LEVEL_HEIGHT = 40 -- vertical gap between consecutive levels
+local MAZE_WALL_HEIGHT = MazeGeometry.WALL_HEIGHT
+local MAZE_THICKNESS = MazeGeometry.THICKNESS -- floor/ceiling thickness
+local MAZE_BASE_Y = MazeGeometry.BASE_Y -- Level 1's walkable height
+local MAZE_LEVEL_HEIGHT = MazeGeometry.LEVEL_HEIGHT -- vertical gap between consecutive levels
 
 -- Depths (distance from the origin, along a wing's own outward axis) for
 -- its gate, the ground-level start of its entry ramp, and Level 1's near
@@ -273,10 +280,10 @@ local MAZE_LEVEL_HEIGHT = 40 -- vertical gap between consecutive levels
 -- entry ramp's slope (rise MAZE_BASE_Y over run ENTRY_DEPTH - CELL_SIZE/2 -
 -- RAMP_START_DEPTH) comes out close to 14 degrees, matching the gentle
 -- slope every ramp elsewhere in this file already uses.
-local MAZE_GATE_DEPTH = 50
-local MAZE_GATE_SPAN = 28 -- passed to createArch below; also what the clearance check derives from
-local MAZE_RAMP_START_DEPTH = 75
-local MAZE_ENTRY_DEPTH = 160
+local MAZE_GATE_DEPTH = MazeGeometry.GATE_DEPTH
+local MAZE_GATE_SPAN = MazeGeometry.GATE_SPAN -- passed to createArch below; also what the clearance check derives from
+local MAZE_RAMP_START_DEPTH = MazeGeometry.RAMP_START_DEPTH
+local MAZE_ENTRY_DEPTH = MazeGeometry.ENTRY_DEPTH
 
 -- Per-wing difficulty/theme: grid size and level count both scale up
 -- (North=easiest/smallest through West=hardest/largest), and each wing
@@ -293,11 +300,20 @@ type WingConfig = {
 	structuralColor: Color3,
 	trimColor: Color3,
 }
+-- gridWidth/gridDepth/levelCount come from MazeGeometry.WING_CONFIGS (the
+-- single source of truth, shared with the Lune-testable geometry math) --
+-- only the theme colors are this file's own.
+local WING_THEME_COLORS: { [string]: { structuralColor: Color3, trimColor: Color3 } } = {
+	MazeN = { structuralColor = Color3.fromHex("2ecc71"), trimColor = Color3.fromHex("6fe8a0") },
+	MazeS = { structuralColor = Color3.fromHex("f1c40f"), trimColor = Color3.fromHex("f7dc6f") },
+	MazeE = { structuralColor = Color3.fromHex("e67e22"), trimColor = Color3.fromHex("f0a860") },
+	MazeW = { structuralColor = Color3.fromHex("e74c3c"), trimColor = Color3.fromHex("f17d72") },
+}
 local WING_CONFIGS: { [string]: WingConfig } = {
-	MazeN = { gridWidth = 5, gridDepth = 8, levelCount = 1, structuralColor = Color3.fromHex("2ecc71"), trimColor = Color3.fromHex("6fe8a0") },
-	MazeS = { gridWidth = 7, gridDepth = 16, levelCount = 2, structuralColor = Color3.fromHex("f1c40f"), trimColor = Color3.fromHex("f7dc6f") },
-	MazeE = { gridWidth = 9, gridDepth = 20, levelCount = 3, structuralColor = Color3.fromHex("e67e22"), trimColor = Color3.fromHex("f0a860") },
-	MazeW = { gridWidth = 11, gridDepth = 26, levelCount = 5, structuralColor = Color3.fromHex("e74c3c"), trimColor = Color3.fromHex("f17d72") },
+	MazeN = { gridWidth = MazeGeometry.WING_CONFIGS.MazeN.gridWidth, gridDepth = MazeGeometry.WING_CONFIGS.MazeN.gridDepth, levelCount = MazeGeometry.WING_CONFIGS.MazeN.levelCount, structuralColor = WING_THEME_COLORS.MazeN.structuralColor, trimColor = WING_THEME_COLORS.MazeN.trimColor },
+	MazeS = { gridWidth = MazeGeometry.WING_CONFIGS.MazeS.gridWidth, gridDepth = MazeGeometry.WING_CONFIGS.MazeS.gridDepth, levelCount = MazeGeometry.WING_CONFIGS.MazeS.levelCount, structuralColor = WING_THEME_COLORS.MazeS.structuralColor, trimColor = WING_THEME_COLORS.MazeS.trimColor },
+	MazeE = { gridWidth = MazeGeometry.WING_CONFIGS.MazeE.gridWidth, gridDepth = MazeGeometry.WING_CONFIGS.MazeE.gridDepth, levelCount = MazeGeometry.WING_CONFIGS.MazeE.levelCount, structuralColor = WING_THEME_COLORS.MazeE.structuralColor, trimColor = WING_THEME_COLORS.MazeE.trimColor },
+	MazeW = { gridWidth = MazeGeometry.WING_CONFIGS.MazeW.gridWidth, gridDepth = MazeGeometry.WING_CONFIGS.MazeW.gridDepth, levelCount = MazeGeometry.WING_CONFIGS.MazeW.levelCount, structuralColor = WING_THEME_COLORS.MazeW.structuralColor, trimColor = WING_THEME_COLORS.MazeW.trimColor },
 }
 
 -- GATE_DEPTH is chosen so a gate's pillars (span MAZE_GATE_SPAN, so offset
@@ -312,7 +328,7 @@ local WING_CONFIGS: { [string]: WingConfig } = {
 -- and take down every RemoteEvent handler in the game, not just the map.
 local function assertMazeConstants()
 	assert(
-		math.sqrt((MAZE_GATE_SPAN / 2) ^ 2 + MAZE_GATE_DEPTH ^ 2) > SPAWN_CLEAR_RADIUS + SPAWN_RING_PADDING + 2,
+		MazeGeometry.GateClearance() > SPAWN_CLEAR_RADIUS + SPAWN_RING_PADDING + 2,
 		"MAZE_GATE_DEPTH too small: gate pillars would sit inside the spawn ring's clearance"
 	)
 	-- A level's ceiling spans [topY + WALL_HEIGHT, topY + WALL_HEIGHT +
@@ -340,7 +356,7 @@ local function assertMazeConstants()
 	-- wider config could silently make two wings interpenetrate with no
 	-- error otherwise.
 	for wingName, config in pairs(WING_CONFIGS) do
-		local halfExtent = config.gridWidth * MAZE_CELL_SPACING / 2
+		local halfExtent = MazeGeometry.WingHalfExtent(config.gridWidth)
 		assert(
 			halfExtent < MAZE_ENTRY_DEPTH - 10,
 			string.format("%s: gridWidth %d too large, wing's lateral half-extent would approach MAZE_ENTRY_DEPTH", wingName, config.gridWidth)
@@ -355,58 +371,39 @@ end
 -- record type with fixed field names.
 type MazeCell = { [string]: boolean }
 type MazeGrid = { [number]: { [number]: MazeCell } }
-type MazeDirection = "+X" | "-X" | "+Z" | "-Z"
+type MazeDirection = MazeGeometry.MazeDirection
 
 -- Which world axis is "depth" for each compass direction, and which sign
--- along that axis is "outward" -- the single source of truth every other
--- maze function below reads from, instead of each re-deriving its own
--- "is this direction X or Z" / "is it + or -" ternary (three independent,
--- easy-to-desync copies of the same fact, before this table existed).
-local MAZE_DIRECTION_INFO: { [MazeDirection]: { axis: "X" | "Z", sign: number } } = {
-	["+Z"] = { axis = "Z", sign = 1 },
-	["-Z"] = { axis = "Z", sign = -1 },
-	["+X"] = { axis = "X", sign = 1 },
-	["-X"] = { axis = "X", sign = -1 },
-}
+-- along that axis is "outward" -- rebound from MazeGeometry (the single
+-- source of truth every other maze function below reads from, instead of
+-- each re-deriving its own "is this direction X or Z" / "is it + or -"
+-- ternary).
+local MAZE_DIRECTION_INFO = MazeGeometry.DIRECTION_INFO
 
 -- Maps a wing-local (lateral, depth) offset -- lateral perpendicular to the
 -- wing's outward direction, depth increasing away from spawn -- into world
 -- X/Z. This one function is what lets every other maze function below be
 -- written once and reused for all four compass wings instead of a
 -- copy-pasted block per direction.
-local function mazeLocalToWorld(direction: MazeDirection, lateral: number, depth: number): (number, number)
-	local info = MAZE_DIRECTION_INFO[direction]
-	local signedDepth = info.sign * depth
-	if info.axis == "Z" then
-		return lateral, signedDepth
-	else
-		return signedDepth, lateral
-	end
-end
+local mazeLocalToWorld = MazeGeometry.LocalToWorld
 
 -- The lateral offset of grid column `col`, centered on the grid's own
 -- width -- factored out of mazeCellCenter so buildMazeWing's entry-ramp
 -- landing and buildMazeWall (which each need this same lateral value at a
 -- different depth than any actual cell's center) don't have to duplicate
 -- the formula.
-local function mazeLateralOffset(col: number, gridWidth: number): number
-	return (col - (gridWidth + 1) / 2) * MAZE_CELL_SPACING
-end
+local mazeLateralOffset = MazeGeometry.LateralOffset
 
 -- The depth offset of grid row `row`, 0 at row 1 (nearest spawn) and
 -- increasing outward -- mirrors mazeLateralOffset for the same reason
 -- (shared by mazeCellCenter and buildMazeWall).
-local function mazeDepthOffset(row: number): number
-	return (row - 1) * MAZE_CELL_SPACING
-end
+local mazeDepthOffset = MazeGeometry.DepthOffset
 
 -- The center of grid cell (col, row) in a wing extending in `direction`
 -- from the origin -- col is 1..gridWidth (lateral), row is 1..gridDepth
 -- (1 = nearest spawn). Shared by every maze-geometry function below so
 -- they all agree on exactly the same cell positions.
-local function mazeCellCenter(direction: MazeDirection, col: number, row: number, gridWidth: number): (number, number)
-	return mazeLocalToWorld(direction, mazeLateralOffset(col, gridWidth), MAZE_ENTRY_DEPTH + mazeDepthOffset(row))
-end
+local mazeCellCenter = MazeGeometry.CellCenter
 
 -- Randomized recursive backtracker (iterative, explicit stack -- doesn't
 -- rely on Luau's native call-stack depth for a larger grid): carves a
