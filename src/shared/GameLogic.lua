@@ -24,6 +24,10 @@ export type Session = {
 	ownedFlameTrail: boolean,
 	ownedLightTrail: boolean,
 	equippedCosmetic: "None" | "FlameTrail" | "LightTrail",
+	completedMazeNorth: boolean,
+	completedMazeSouth: boolean,
+	completedMazeEast: boolean,
+	completedMazeWest: boolean,
 }
 
 -- The single source of truth for what a blank session looks like: used both
@@ -43,6 +47,10 @@ function GameLogic.GetDefaultSession(): Session
 		ownedFlameTrail = false,
 		ownedLightTrail = false,
 		equippedCosmetic = "None",
+		completedMazeNorth = false,
+		completedMazeSouth = false,
+		completedMazeEast = false,
+		completedMazeWest = false,
 	}
 end
 
@@ -106,12 +114,40 @@ function GameLogic.CalculateClickGain(session: Session): number
 	return base * GameLogic.CalculateMultiplier(session)
 end
 
+-- Sum of permanent click/minute bonuses from completed maze wings (see
+-- GameConstants.MAZE_GOALS) -- 0 if none completed yet. Factored out of
+-- CalculateIdleGain so it's independently testable. Written as explicit
+-- per-field checks rather than looping over MAZE_GOALS and indexing Session
+-- by a dynamic string key -- Session is a fixed-field record type, not an
+-- index-signature type, so a dynamic-key lookup wouldn't type-check under
+-- --!strict (see MapBuilder.lua's MazeCell for the index-signature
+-- alternative this deliberately isn't using).
+function GameLogic.CalculateMazeBonusRate(session: Session): number
+	local bonus = 0
+	if session.completedMazeNorth then
+		bonus += GameConstants.MAZE_GOALS.MazeNGoal.RewardPerMinute
+	end
+	if session.completedMazeSouth then
+		bonus += GameConstants.MAZE_GOALS.MazeSGoal.RewardPerMinute
+	end
+	if session.completedMazeEast then
+		bonus += GameConstants.MAZE_GOALS.MazeEGoal.RewardPerMinute
+	end
+	if session.completedMazeWest then
+		bonus += GameConstants.MAZE_GOALS.MazeWGoal.RewardPerMinute
+	end
+	return bonus
+end
+
 -- Points earned from idle auto-clickers (both tiers) over deltaTime seconds.
 -- AutoClicker/MegaClicker Rate constants are per-minute, so divide by 60 to
 -- get the per-second rate the tick loop (deltaTime in real seconds) needs.
+-- Completed-maze bonuses (also per-minute) are added into the same rate,
+-- subject to the same multiplier as everything else -- no special case.
 function GameLogic.CalculateIdleGain(session: Session, deltaTime: number): number
 	local ratePerMinute = session.autoClickerCount * GameConstants.UPGRADES.AutoClicker.Rate
 		+ session.megaClickerCount * GameConstants.UPGRADES.MegaClicker.Rate
+		+ GameLogic.CalculateMazeBonusRate(session)
 	local ratePerSecond = ratePerMinute / 60
 	return ratePerSecond * GameLogic.CalculateMultiplier(session) * deltaTime
 end

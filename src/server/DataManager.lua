@@ -67,6 +67,10 @@ local function loadByUserId(userId: number): GameLogic.Session?
 		ownedFlameTrail = fallback(result.ownedFlameTrail, defaultData.ownedFlameTrail),
 		ownedLightTrail = fallback(result.ownedLightTrail, defaultData.ownedLightTrail),
 		equippedCosmetic = fallback(result.equippedCosmetic, defaultData.equippedCosmetic),
+		completedMazeNorth = fallback(result.completedMazeNorth, defaultData.completedMazeNorth),
+		completedMazeSouth = fallback(result.completedMazeSouth, defaultData.completedMazeSouth),
+		completedMazeEast = fallback(result.completedMazeEast, defaultData.completedMazeEast),
+		completedMazeWest = fallback(result.completedMazeWest, defaultData.completedMazeWest),
 	}
 end
 

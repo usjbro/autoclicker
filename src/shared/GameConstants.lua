@@ -53,4 +53,19 @@ GameConstants.ITEM_FIELDS = {
 	LightTrail = "ownedLightTrail",
 }
 
+-- Maps each maze wing's goal part name (see MapBuilder.lua's WING_CONFIGS/
+-- buildMazeWing -- named wingName .. "Goal") to the session field it sets
+-- and the permanent click/minute reward it grants on first touch. Reward
+-- resets on Reset/Rebirth along with score/upgrade counts (GetDefaultSession
+-- below defaults every field to false; ResetProgress/PerformRebirth rebuild
+-- from GetDefaultSession without re-preserving these, same as upgrade
+-- counts) -- it's a repeatable-per-run payoff for solving a wing again, not
+-- a permanent one-time unlock like totalClicks/rebirthCount.
+GameConstants.MAZE_GOALS = {
+	MazeNGoal = { Field = "completedMazeNorth", RewardPerMinute = 10 },
+	MazeSGoal = { Field = "completedMazeSouth", RewardPerMinute = 20 },
+	MazeEGoal = { Field = "completedMazeEast", RewardPerMinute = 100 },
+	MazeWGoal = { Field = "completedMazeWest", RewardPerMinute = 100000 },
+}
+
 return GameConstants

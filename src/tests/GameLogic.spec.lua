@@ -18,6 +18,10 @@ return function()
 			ownedFlameTrail = false,
 			ownedLightTrail = false,
 			equippedCosmetic = "None",
+			completedMazeNorth = false,
+			completedMazeSouth = false,
+			completedMazeEast = false,
+			completedMazeWest = false,
 		}
 		for key, value in pairs(overrides or {}) do
 			base[key] = value
@@ -52,6 +56,8 @@ return function()
 				ownedWings = true,
 				ownedFlameTrail = true,
 				equippedCosmetic = "FlameTrail",
+				completedMazeNorth = true,
+				completedMazeWest = true,
 			})
 			local after = GameLogic.ResetProgress(before)
 
@@ -69,6 +75,11 @@ return function()
 			expect(after.ownedWings).to.equal(true)
 			expect(after.ownedFlameTrail).to.equal(true)
 			expect(after.equippedCosmetic).to.equal("FlameTrail")
+			-- A maze completion bonus is a repeatable-per-run payoff (like an
+			-- upgrade), not a permanent unlock (like totalClicks/rebirthCount) --
+			-- see GameConstants.MAZE_GOALS's own comment.
+			expect(after.completedMazeNorth).to.equal(false)
+			expect(after.completedMazeWest).to.equal(false)
 		end)
 	end)
 
@@ -82,6 +93,7 @@ return function()
 				ownedWings = true,
 				ownedLightTrail = true,
 				equippedCosmetic = "LightTrail",
+				completedMazeEast = true,
 			})
 			local after = GameLogic.PerformRebirth(before)
 
@@ -92,6 +104,7 @@ return function()
 			expect(after.ownedWings).to.equal(false)
 			expect(after.ownedLightTrail).to.equal(false)
 			expect(after.equippedCosmetic).to.equal("None")
+			expect(after.completedMazeEast).to.equal(false)
 		end)
 	end)
 
@@ -157,6 +170,27 @@ return function()
 
 	-- AutoClicker/MegaClicker Rate constants are per-minute (see GameLogic.lua),
 	-- so these use a 60-second deltaTime to land on clean expected values.
+	describe("CalculateMazeBonusRate", function()
+		it("should be 0 with no completed mazes", function()
+			expect(GameLogic.CalculateMazeBonusRate(session())).to.equal(0)
+		end)
+
+		it("should return the matching reward for a single completed maze", function()
+			expect(GameLogic.CalculateMazeBonusRate(session({ completedMazeNorth = true }))).to.equal(10)
+			expect(GameLogic.CalculateMazeBonusRate(session({ completedMazeSouth = true }))).to.equal(20)
+			expect(GameLogic.CalculateMazeBonusRate(session({ completedMazeEast = true }))).to.equal(100)
+			expect(GameLogic.CalculateMazeBonusRate(session({ completedMazeWest = true }))).to.equal(100000)
+		end)
+
+		it("should sum rewards across multiple completed mazes", function()
+			local result = GameLogic.CalculateMazeBonusRate(session({
+				completedMazeNorth = true,
+				completedMazeEast = true,
+			}))
+			expect(result).to.equal(110)
+		end)
+	end)
+
 	describe("CalculateIdleGain", function()
 		it("should return 0 with no auto-clickers", function()
 			expect(GameLogic.CalculateIdleGain(session(), 10)).to.equal(0)
@@ -177,6 +211,15 @@ return function()
 			)
 			-- (2*1 + 1*10) * 1.1 = 13.2
 			expect(result).to.be.near(13.2, 1e-9)
+		end)
+
+		it("should add completed-maze bonuses into the rate, subject to the same multiplier", function()
+			local result = GameLogic.CalculateIdleGain(
+				session({ completedMazeNorth = true, multiplierCount = 1 }),
+				60
+			)
+			-- 10 * 1.1 = 11
+			expect(result).to.be.near(11, 1e-9)
 		end)
 	end)
 end
