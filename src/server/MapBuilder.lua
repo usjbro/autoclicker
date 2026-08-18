@@ -288,13 +288,19 @@ local function assertMazeConstants()
 		math.sqrt((MAZE_GATE_SPAN / 2) ^ 2 + MAZE_GATE_DEPTH ^ 2) > SPAWN_CLEAR_RADIUS + SPAWN_RING_PADDING + 2,
 		"MAZE_GATE_DEPTH too small: gate pillars would sit inside the spawn ring's clearance"
 	)
-	-- A level's ceiling (topY + WALL_HEIGHT + THICKNESS) must stay below the
-	-- next level's floor (topY + LEVEL_HEIGHT) -- true today only because
-	-- 40 > 16 + 2 happens to hold; a future taller-wall or tighter-stacking
-	-- edit could silently make two levels' floor/ceiling plates
-	-- interpenetrate with no error, just players clipping/stuck in Studio.
+	-- A level's ceiling spans [topY + WALL_HEIGHT, topY + WALL_HEIGHT +
+	-- THICKNESS] (buildMazeFloor's topY parameter is a surface, the part
+	-- extends *down* from it by THICKNESS); the next level's floor spans
+	-- [topY + LEVEL_HEIGHT - THICKNESS, topY + LEVEL_HEIGHT] for the same
+	-- reason. Avoiding interpenetration needs the ceiling's top at or below
+	-- the next floor's bottom, i.e. LEVEL_HEIGHT >= WALL_HEIGHT +
+	-- 2*THICKNESS (one THICKNESS for the ceiling's own depth, one for the
+	-- floor's) -- true today only because 40 > 16 + 2*2 happens to hold; a
+	-- future taller-wall or tighter-stacking edit could silently make two
+	-- levels' floor/ceiling plates interpenetrate with no error, just
+	-- players clipping/stuck in Studio.
 	assert(
-		MAZE_LEVEL_HEIGHT > MAZE_WALL_HEIGHT + MAZE_THICKNESS,
+		MAZE_LEVEL_HEIGHT > MAZE_WALL_HEIGHT + 2 * MAZE_THICKNESS,
 		"MAZE_LEVEL_HEIGHT too small: a level's ceiling would collide with the next level's floor"
 	)
 end
