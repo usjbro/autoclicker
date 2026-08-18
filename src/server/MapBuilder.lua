@@ -242,8 +242,16 @@ local MAZE_GRID_DEPTH = 16 -- cells deep, outward from spawn
 local MAZE_CELL_SIZE = 18 -- also each cell's run length before the next wall/junction
 local MAZE_CELL_SPACING = MAZE_CELL_SIZE -- cells touch edge-to-edge -- floor is contiguous, walls (not gaps) carve the maze
 local MAZE_WALL_THICKNESS = 2
-local MAZE_WALL_HEIGHT = 12 -- comfortably exceeds Roblox's default jump height -- see note above
-local MAZE_THICKNESS = 2 -- floor thickness
+-- A corridor's containment comes from the ceiling (see buildMazeLevel),
+-- not from making the walls tall enough that they supposedly can't be
+-- jumped or seen over -- that turned out not to hold up in practice (a
+-- player could still get over/see over a 12-stud wall), and "tall enough"
+-- isn't something a wall alone can ever fully guarantee against a
+-- controllable 3rd-person camera anyway. The wall's height only needs to
+-- reach the ceiling with no gap, so nothing can slip sideways between a
+-- wall's top and the ceiling's underside.
+local MAZE_WALL_HEIGHT = 16
+local MAZE_THICKNESS = 2 -- floor/ceiling thickness
 local MAZE_LEVEL_COUNT = 3
 local MAZE_BASE_Y = 20 -- Level 1's walkable height
 local MAZE_LEVEL_HEIGHT = 40 -- vertical gap between consecutive levels
@@ -481,6 +489,13 @@ local function buildMazeLevel(folder: Folder, namePrefix: string, grid: MazeGrid
 	end
 
 	buildMazeFloor(folder, namePrefix .. "Floor", direction, topY)
+	-- A solid ceiling with its underside flush against every wall's top
+	-- (no gap for anything to slip sideways through) is what actually
+	-- contains a player, not wall height alone -- see MAZE_WALL_HEIGHT's
+	-- comment. Reuses buildMazeFloor's own footprint math unchanged, just
+	-- at a higher topY, since a ceiling is geometrically identical to the
+	-- floor -- one continuous plate spanning the whole grid.
+	buildMazeFloor(folder, namePrefix .. "Ceiling", direction, topY + MAZE_WALL_HEIGHT + MAZE_THICKNESS)
 
 	for col = 1, MAZE_GRID_WIDTH do
 		for row = 1, MAZE_GRID_DEPTH do
