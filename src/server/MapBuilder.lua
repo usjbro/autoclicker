@@ -263,20 +263,26 @@ local MAZE_LEVEL_HEIGHT = 40 -- vertical gap between consecutive levels
 -- RAMP_START_DEPTH) comes out close to 14 degrees, matching the gentle
 -- slope every ramp elsewhere in this file already uses.
 local MAZE_GATE_DEPTH = 50
+local MAZE_GATE_SPAN = 28 -- passed to createArch below; also what the clearance check derives from
 local MAZE_RAMP_START_DEPTH = 75
 local MAZE_ENTRY_DEPTH = 160
 
--- GATE_DEPTH is chosen so a gate's pillars (span 28, so offset
--- sqrt(14^2 + GATE_DEPTH^2) from the origin) clear both SPAWN_CLEAR_RADIUS
--- and the spawn ring's own radius (SPAWN_CLEAR_RADIUS + 4) with real
--- margin -- the previous South zone's gate didn't (see issue #51). Checked
--- here, at module load, rather than trusted to a comment -- a future edit
--- to either constant that breaks this now fails loudly at server start
--- instead of silently reintroducing #51.
-assert(
-	math.sqrt(14 ^ 2 + MAZE_GATE_DEPTH ^ 2) > SPAWN_CLEAR_RADIUS + 4 + 2,
-	"MAZE_GATE_DEPTH too small: gate pillars would sit inside the spawn ring's clearance"
-)
+-- GATE_DEPTH is chosen so a gate's pillars (span MAZE_GATE_SPAN, so offset
+-- sqrt((MAZE_GATE_SPAN/2)^2 + GATE_DEPTH^2) from the origin) clear both
+-- SPAWN_CLEAR_RADIUS and the spawn ring's own radius (SPAWN_CLEAR_RADIUS +
+-- 4) with real margin -- the previous South zone's gate didn't (see issue
+-- #51). Checked in assertMazeConstants below (called from inside Build()'s
+-- pcall, not at module load) so a future edit to any of these constants
+-- that breaks this fails loudly but gracefully -- caught and warn()'d like
+-- every other Build() failure, not an uncaught error that would blow up
+-- the require() call in GameService.server.lua and take down every
+-- RemoteEvent handler in the game, not just the map.
+local function assertMazeConstants()
+	assert(
+		math.sqrt((MAZE_GATE_SPAN / 2) ^ 2 + MAZE_GATE_DEPTH ^ 2) > SPAWN_CLEAR_RADIUS + 4 + 2,
+		"MAZE_GATE_DEPTH too small: gate pillars would sit inside the spawn ring's clearance"
+	)
+end
 
 -- Untyped-value cells ({[string]: boolean}, not a fixed record) so the
 -- carve loop below can index by a direction name held in a variable
@@ -473,10 +479,14 @@ type MazeOpenEdge = { col: number, edge: "north" | "south" }
 -- carved passage: an internal edge between two cells gets a wall exactly
 -- when the maze didn't connect them; every edge on the grid's own boundary
 -- (its four sides) gets a wall too, except the specific (col, "north"/
--- "south") points listed in `openEdges` -- where the entry ramp lands (a
--- "north" opening, Level 1 only) or a shaft passes through (a "south"
--- opening, wherever a shaft's landing bridges back into this level). The
--- grid's east/west boundaries are always fully walled -- nothing in this
+-- "south") points listed in `openEdges`. Three distinct things put a point
+-- in that list (see buildMazeWing): the entry ramp's landing cell (a
+-- "north" opening, Level 1 only), a shaft's landing bridging back INTO a
+-- level from below (a "south" opening), and a shaft departing UPWARD from
+-- a level (also a "south" opening, at that shaft's own starting cell --
+-- easy to forget since there's no "landing" involved, just the top of the
+-- staircase this level's own buildMazeShaft call builds). The grid's
+-- east/west boundaries are always fully walled -- nothing in this
 -- design ever enters or exits a level from the side.
 local function buildMazeLevel(folder: Folder, namePrefix: string, grid: MazeGrid, direction: MazeDirection, topY: number, openEdges: { MazeOpenEdge })
 	local function isOpen(col: number, edge: "north" | "south"): boolean
@@ -501,11 +511,10 @@ local function buildMazeLevel(folder: Folder, namePrefix: string, grid: MazeGrid
 		for row = 1, MAZE_GRID_DEPTH do
 			local cell = grid[col][row]
 
-			if col < MAZE_GRID_WIDTH then
-				if not cell.east then
-					buildMazeWall(folder, namePrefix .. "Wall" .. col .. "_" .. row .. "E", direction, topY, col, row, "lateral", 1)
-				end
-			else
+			-- col == MAZE_GRID_WIDTH (the boundary) always walls, regardless
+			-- of cell.east -- there's no east neighbor to have carved a
+			-- passage into.
+			if col == MAZE_GRID_WIDTH or not cell.east then
 				buildMazeWall(folder, namePrefix .. "Wall" .. col .. "_" .. row .. "E", direction, topY, col, row, "lateral", 1)
 			end
 
@@ -585,7 +594,7 @@ end
 -- next shaft up.
 local function buildMazeWing(folder: Folder, wingName: string, direction: MazeDirection, rng: Random)
 	local gateX, gateZ = mazeLocalToWorld(direction, 0, MAZE_GATE_DEPTH)
-	createArch(folder, wingName .. "Gate", Vector3.new(gateX, 0, gateZ), MAZE_DIRECTION_INFO[direction].axis, 28, 20)
+	createArch(folder, wingName .. "Gate", Vector3.new(gateX, 0, gateZ), MAZE_DIRECTION_INFO[direction].axis, MAZE_GATE_SPAN, 20)
 
 	local rampOriginX, rampOriginZ = mazeLocalToWorld(direction, 0, MAZE_RAMP_START_DEPTH)
 	local entryCol = math.ceil((MAZE_GRID_WIDTH + 1) / 2)
@@ -634,6 +643,8 @@ end
 
 function MapBuilder.Build(): (boolean, string?)
 	local ok, err = pcall(function()
+		assertMazeConstants()
+
 		local folder = Instance.new("Folder")
 		folder.Name = "Map"
 		folder.Parent = workspace
