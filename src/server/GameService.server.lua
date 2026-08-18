@@ -97,6 +97,22 @@ local function syncPlayer(player: Player)
 	SyncState:FireClient(player, session)
 end
 
+-- ResetEvent/RebirthEvent both directly call DataManager.Save (a
+-- synchronous SetAsync) on every accepted fire, unlike every other handler
+-- below -- Roblox's DataStore request budget is shared per server
+-- instance, not per player, so a modified client spamming either with no
+-- cooldown could exhaust it and degrade save reliability for every player
+-- on the server, not just itself. Checked (and, on an accepted fire,
+-- stamped) before SessionStore.With is even entered, so a flood of
+-- rejected fires doesn't also pile up needless lock contention. Shared
+-- between the two events since they guard the same underlying resource.
+local RESET_REBIRTH_COOLDOWN_SECONDS = 3
+local lastResetOrRebirthAt: { [number]: number } = {}
+local function isOnResetRebirthCooldown(userId: number): boolean
+	local last = lastResetOrRebirthAt[userId]
+	return last ~= nil and (os.clock() - last) < RESET_REBIRTH_COOLDOWN_SECONDS
+end
+
 -- Copies every field from newValues into session in place, rather than
 -- replacing the stored session with a new table outright. Other code (e.g.
 -- RobuxPurchaseManager) can hold a reference to a player's session across a
@@ -210,7 +226,9 @@ end)
 
 -- [SERVER] Handle Reset
 ResetEvent.OnServerEvent:Connect(function(player)
+	if isOnResetRebirthCooldown(player.UserId) then return end
 	SessionStore.With(player.UserId, function(session)
+		lastResetOrRebirthAt[player.UserId] = os.clock()
 		-- Captured before ResetProgress zeroes it: only force a leaderboard
 		-- write for a player who actually had a nonzero score to wipe.
 		-- Otherwise a player who never played (score already 0, no existing
@@ -244,8 +262,10 @@ end)
 
 -- [SERVER] Handle Rebirth
 RebirthEvent.OnServerEvent:Connect(function(player)
+	if isOnResetRebirthCooldown(player.UserId) then return end
 	SessionStore.With(player.UserId, function(session)
 		if not GameLogic.CanRebirth(session) then return end
+		lastResetOrRebirthAt[player.UserId] = os.clock()
 
 		applyInPlace(session, GameLogic.PerformRebirth(session))
 		-- Force the leaderboard entry to reflect the wipe immediately --
