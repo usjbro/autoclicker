@@ -22,6 +22,12 @@ local ACCENT = Color3.fromHex("6c5ce7")
 -- VoidSpawn sits at the origin (see GameService.server.lua); keep a clear
 -- radius around it so nothing built here ever overlaps a spawning player.
 local SPAWN_CLEAR_RADIUS = 32
+-- How far outside SPAWN_CLEAR_RADIUS the spawn ring's own pillars sit --
+-- shared by the ring-building code and assertMazeConstants below (which
+-- checks every maze gate clears the ring, not just SPAWN_CLEAR_RADIUS
+-- itself) so the two can't silently desync the way MAZE_GATE_SPAN's old
+-- hardcoded duplicate could.
+local SPAWN_RING_PADDING = 4
 
 type PartOverrides = { [string]: any }
 
@@ -270,17 +276,26 @@ local MAZE_ENTRY_DEPTH = 160
 -- GATE_DEPTH is chosen so a gate's pillars (span MAZE_GATE_SPAN, so offset
 -- sqrt((MAZE_GATE_SPAN/2)^2 + GATE_DEPTH^2) from the origin) clear both
 -- SPAWN_CLEAR_RADIUS and the spawn ring's own radius (SPAWN_CLEAR_RADIUS +
--- 4) with real margin -- the previous South zone's gate didn't (see issue
--- #51). Checked in assertMazeConstants below (called from inside Build()'s
--- pcall, not at module load) so a future edit to any of these constants
--- that breaks this fails loudly but gracefully -- caught and warn()'d like
--- every other Build() failure, not an uncaught error that would blow up
--- the require() call in GameService.server.lua and take down every
--- RemoteEvent handler in the game, not just the map.
+-- SPAWN_RING_PADDING) with real margin -- the previous South zone's gate
+-- didn't (see issue #51). Checked in assertMazeConstants below (called
+-- from inside Build()'s pcall, not at module load) so a future edit to any
+-- of these constants that breaks this fails loudly but gracefully --
+-- caught and warn()'d like every other Build() failure, not an uncaught
+-- error that would blow up the require() call in GameService.server.lua
+-- and take down every RemoteEvent handler in the game, not just the map.
 local function assertMazeConstants()
 	assert(
-		math.sqrt((MAZE_GATE_SPAN / 2) ^ 2 + MAZE_GATE_DEPTH ^ 2) > SPAWN_CLEAR_RADIUS + 4 + 2,
+		math.sqrt((MAZE_GATE_SPAN / 2) ^ 2 + MAZE_GATE_DEPTH ^ 2) > SPAWN_CLEAR_RADIUS + SPAWN_RING_PADDING + 2,
 		"MAZE_GATE_DEPTH too small: gate pillars would sit inside the spawn ring's clearance"
+	)
+	-- A level's ceiling (topY + WALL_HEIGHT + THICKNESS) must stay below the
+	-- next level's floor (topY + LEVEL_HEIGHT) -- true today only because
+	-- 40 > 16 + 2 happens to hold; a future taller-wall or tighter-stacking
+	-- edit could silently make two levels' floor/ceiling plates
+	-- interpenetrate with no error, just players clipping/stuck in Studio.
+	assert(
+		MAZE_LEVEL_HEIGHT > MAZE_WALL_HEIGHT + MAZE_THICKNESS,
+		"MAZE_LEVEL_HEIGHT too small: a level's ceiling would collide with the next level's floor"
 	)
 end
 
@@ -681,7 +696,7 @@ function MapBuilder.Build(): (boolean, string?)
 		-- offset is applied uniformly since it costs nothing and removes the
 		-- whole class of "does some multiple of 60 degrees hit a multiple of
 		-- 90" coincidence instead of relying on it not mattering by luck. ===
-		local ringRadius = SPAWN_CLEAR_RADIUS + 4
+		local ringRadius = SPAWN_CLEAR_RADIUS + SPAWN_RING_PADDING
 		local pillarCount = 6
 		local ringAngleOffset = math.rad(15)
 		for i = 0, pillarCount - 1 do
