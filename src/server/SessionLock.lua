@@ -16,7 +16,14 @@ local SessionLock = {}
 local locks: { [number]: boolean } = {}
 local lockOwner: { [number]: thread } = {}
 
-function SessionLock.Run(userId: number, fn: () -> ())
+-- fn is typed () -> ...any rather than () -> () so pcall(fn) below infers a
+-- 2-value return (boolean, ...any) -- with () -> (), Luau's pcall stub only
+-- accounts for R... from a successful call and doesn't model the extra error
+-- string returned on failure, so `local ok, err = pcall(fn)` would otherwise
+-- trip a spurious "Function only returns 1 value, but 2 are required" strict
+-- error even though this is correct and safe at runtime. Every real fn passed
+-- in returns nothing, which remains a valid ...any.
+function SessionLock.Run(userId: number, fn: () -> ...any)
 	-- A same-stack nested call for the same userId would otherwise deadlock
 	-- forever (the inner wait can never see the outer lock clear). Detect it
 	-- and fail loudly instead of hanging that player's session permanently.

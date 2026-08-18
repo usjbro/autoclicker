@@ -128,7 +128,12 @@ function RobuxPurchaseManager.Start(
 			-- hard to get wrong by omission: returning normally means
 			-- success, error(...) means failure -- there's no separate
 			-- "did it work" flag to forget to set on some future added path.
-			local ok, err = pcall(function()
+			-- Explicit ...any return type so pcall's inferred return type is
+			-- (boolean, ...any) -- same reasoning as SessionLock.Run's fn
+			-- parameter; without it, Luau's strict-mode pcall stub trips a
+			-- spurious 2-values-required error since this closure returns
+			-- nothing on success.
+			local ok, err = pcall(function(): ...any
 				-- Grant, then durably save immediately -- real money must not
 				-- depend on the player disconnecting naturally.
 				local field = GameConstants.UPGRADE_FIELDS[upgradeId]

@@ -1,7 +1,7 @@
 ---
 name: roblox-responsive-ui
 description: Use when adding or modifying UI in src/client/init.client.lua that needs to scale or reflow across screen sizes — new panels, popups, HUD elements, or any change to an existing element's Size/Position. Triggers on "add a new screen/panel", "make this responsive", "fix UI overlap", "resize", or any change touching UDim2 Size/Position in the client. Not for pure text/color/copy tweaks that don't touch layout.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash(lune *), Bash(rojo *)
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash(lune *), Bash(rojo *), Bash(luau-lsp *)
 ---
 
 # Roblox responsive UI (Autoclicker Void)
@@ -77,22 +77,31 @@ just new panels.
    shared modules (`GameLogic`/`NumberFormat`/`SpeedCalculator`); `rojo build` only
    compiles the place file structure. Neither runs `init.client.lua`'s actual code
    against Roblox's real API surface, so an invalid `Enum` reference or a
-   clamp-defeated animation sails through both checks clean — as #39 did. Still run
-   both before opening a PR (they catch real things: shared-logic regressions, Rojo
-   project/sync errors), just don't mistake a pass on either for proof the GUI runs:
+   clamp-defeated animation used to sail through both checks clean — that's exactly
+   how #39 shipped. Still run both before opening a PR (they catch real things:
+   shared-logic regressions, Rojo project/sync errors):
    ```sh
    lune run test/gameLogic.test.luau
    rojo build default.project.json -o /tmp/check.rbxlx
    ```
 
-7. **Get this actually running in Studio or a live server before merging** — Play the
-   place and click every button this change touches. This is the only check in this
-   list that would have caught #39's `Enum.AutomaticCanvasSize` crash (gotcha #1);
-   everything else here (review, lune, rojo build) missed it and it reached a live
-   player instead. A code-review pass (the `code-review` skill) still catches gotchas
-   #2-#5, which are visual/layout issues a script won't throw on — get one before
-   merging any layout-affecting change, but treat it as a complement to a live check,
-   not a substitute for one.
+7. **Run Luau static analysis — it catches gotcha #1 without ever pressing Play.**
+   CI now runs `luau-lsp analyze` on every PR (see `.github/workflows/ci.yml`) and
+   would have caught #39's `Enum.AutomaticCanvasSize` reference statically: an
+   invalid `Enum.*` member is knowable from the type alone, no live run needed. Run
+   it locally before opening a PR too (or use Studio's own Script Analysis window),
+   so a bad `Enum` reference or type mismatch surfaces in seconds instead of waiting
+   on CI or a live player:
+   ```sh
+   rojo sourcemap default.project.json -o sourcemap.json
+   luau-lsp analyze --platform roblox --sourcemap sourcemap.json --definitions globalTypes.d.luau src/server src/shared src/client
+   ```
+   This does **not** replace a live check, though — it only catches type-level bugs
+   (gotcha #1), not visual/layout issues (gotchas #2-#5) or logic bugs a type checker
+   can't see. Still get this running in Studio or a live server before merging — play
+   the place and click every button this change touches — and still get a
+   `code-review` pass for gotchas #2-#5. Static analysis, a live check, and review are
+   three complementary layers, not substitutes for each other.
 
 ## Output
 

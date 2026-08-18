@@ -586,7 +586,13 @@ local function buildMazeShaft(folder: Folder, namePrefix: string, direction: Maz
 
 	local cx, cz = mazeCellCenter(direction, col, MAZE_GRID_DEPTH)
 	local info = MAZE_DIRECTION_INFO[direction]
-	local axis, sign = info.axis, info.sign
+	-- Explicit "X"|"Z" annotation: axis's literal type otherwise gets widened
+	-- to a plain string by the time it reaches createStaircase's typed
+	-- parameter below (a Luau inference gap through the axis=="X"/=="Z"
+	-- comparisons a few lines down), tripping a strict-mode type error even
+	-- though the value itself is always exactly "X" or "Z" at runtime.
+	local axis: "X" | "Z" = info.axis
+	local sign = info.sign
 
 	-- createStaircase's origin must be the near edge of the first step, not
 	-- the cell's center (see its own doc comment) -- every ramp/staircase in

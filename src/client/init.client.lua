@@ -574,14 +574,16 @@ sliderTrack.InputBegan:Connect(function(input)
 		draggingSlider = true
 		pendingSliderPercent = nil
 		pendingSince = nil
-		updateSliderFromInput(input.Position)
+		-- InputObject.Position is a Vector3 (Z unused for mouse/touch); drop it
+		-- to match updateSliderFromInput's 2D Vector2 parameter.
+		updateSliderFromInput(Vector2.new(input.Position.X, input.Position.Y))
 	end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
 	if not draggingSlider then return end
 	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		updateSliderFromInput(input.Position)
+		updateSliderFromInput(Vector2.new(input.Position.X, input.Position.Y))
 	end
 end)
 

@@ -1,7 +1,7 @@
 ---
 name: roblox-feature-scaffold
 description: Use when adding a new RemoteEvent/handler, a new upgrade or session field, or any new session-mutating server logic to Autoclicker Void. Triggers on requests like "add a new upgrade", "add a new RemoteEvent", "add a Boost/temporary-effect feature", "add a purchase type", or any change that needs a server handler mutating player session state. Not for pure client-only UI tweaks or one-line bugfixes.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash(lune *), Bash(rojo *)
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash(lune *), Bash(rojo *), Bash(luau-lsp *)
 ---
 
 # Roblox feature scaffold (Autoclicker Void)
@@ -79,10 +79,17 @@ See `references/handler-template.lua` for an annotated template mirroring the ex
    - `test/gameLogic.test.luau` (Lune, headless) — keep test cases in sync between
      the two per CLAUDE.md; don't add a case to one and forget the other.
 
-10. **Before opening a PR**, run both local checks CI also runs:
+10. **Before opening a PR**, run all three local checks CI also runs. Neither of the
+    first two executes or type-checks server/client Luau — `lune` only runs the
+    specific pure-logic files it requires, `rojo build` only compiles the place-file
+    structure — so a new handler with a bad `Enum` reference or an argument-type
+    mismatch sails through both clean. `luau-lsp analyze` is what actually catches
+    that class of bug:
     ```sh
     lune run test/gameLogic.test.luau
     rojo build default.project.json -o /tmp/check.rbxlx
+    rojo sourcemap default.project.json -o sourcemap.json
+    luau-lsp analyze --platform roblox --sourcemap sourcemap.json --definitions globalTypes.d.luau src/server src/shared src/client
     ```
     Report which steps above were touched and which were skipped (and why) when
     presenting the change.

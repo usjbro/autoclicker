@@ -8,6 +8,7 @@ on:
 env:
   LUNE_VERSION: 0.10.5
   ROJO_VERSION: 7.7.0
+  LUAU_LSP_VERSION: 1.69.0
 
 jobs:
   test-and-build:
@@ -15,12 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache Lune/Rojo binaries
+      - name: Cache Lune/Rojo/Luau LSP binaries
         id: tool-cache
         uses: actions/cache@v4
         with:
           path: ~/.local/bin
-          key: ${{ runner.os }}-lune-${{ env.LUNE_VERSION }}-rojo-${{ env.ROJO_VERSION }}
+          key: ${{ runner.os }}-lune-${{ env.LUNE_VERSION }}-rojo-${{ env.ROJO_VERSION }}-luau-lsp-${{ env.LUAU_LSP_VERSION }}
 
       - name: Install Lune
         if: steps.tool-cache.outputs.cache-hit != 'true'
@@ -38,6 +39,14 @@ jobs:
           unzip rojo.zip -d "$HOME/.local/bin"
           chmod +x "$HOME/.local/bin/rojo"
 
+      - name: Install Luau LSP
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fL -o luau-lsp.zip "https://github.com/JohnnyMorganz/luau-lsp/releases/download/${LUAU_LSP_VERSION}/luau-lsp-linux-x86_64.zip"
+          unzip luau-lsp.zip -d "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/luau-lsp"
+
       - name: Add tools to PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
@@ -46,3 +55,24 @@ jobs:
 
       - name: Verify Rojo project builds
         run: rojo build default.project.json -o /tmp/ci-build.rbxlx
+
+      - name: Run Luau static analysis
+        # Neither check above executes client/server Luau or type-checks it --
+        # lune only runs the specific pure-logic files it requires, and rojo
+        # build only compiles the place-file structure. This is what actually
+        # catches invalid Enum references, argument mismatches, etc. before a
+        # human has to open Studio and hit Play (see issue #43/PR #44, which
+        # shipped a crash-on-load bug neither check above could have caught).
+        #
+        # Scoped to src/server, src/shared, src/client only -- real shipped
+        # game code. src/tests/*.spec.lua and the vendored src/Packages/TestEZ
+        # are deliberately excluded: TestEZ ships no Luau type definitions for
+        # luau-lsp (Roblox Studio's own Script Analysis has proprietary TestEZ
+        # support this open-source tool doesn't replicate), and the enforced
+        # test surface is the separate Lune suite above, not the in-Studio
+        # TestEZ suite -- so gating CI on a third-party package's own
+        # strictness isn't worth the fragility.
+        run: |
+          rojo sourcemap default.project.json -o sourcemap.json
+          curl -fL -o globalTypes.d.luau "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/${LUAU_LSP_VERSION}/scripts/globalTypes.d.luau"
+          luau-lsp analyze --platform roblox --sourcemap sourcemap.json --definitions globalTypes.d.luau src/server src/shared src/client
