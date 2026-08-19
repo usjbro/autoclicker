@@ -53,9 +53,17 @@ local WING_ANCHORS: { [string]: WingAnchor } = {
 MazeGeometry.WING_ANCHORS = WING_ANCHORS
 
 -- The center of grid cell (col, row) of an N-by-N grid centered on
--- (anchorX, anchorZ) -- col/row both 1..gridSize. The center cell
--- (col == row == ceil((gridSize + 1) / 2)) sits exactly on the anchor;
--- this is where the player spawns (issue #60's "center spawn").
+-- (anchorX, anchorZ) -- col/row both 1..gridSize. For an odd gridSize, the
+-- center cell (see CenterCell below) sits exactly on the anchor. For an
+-- even gridSize -- every real WING_CONFIGS entry today (16/32/64/128) --
+-- there's no single cell exactly at the true geometric center (it falls
+-- on a cell *boundary*, not inside any one cell), so the chosen center
+-- cell is offset from the anchor by half a cellSize in both X and Z; this
+-- is expected, not a bug -- confirmed in test/mazeGeometry.test.luau for
+-- both an odd and an even gridSize, since only testing the odd case would
+-- give false confidence about the even case every real tile actually
+-- uses. Either way, this is where the player spawns (issue #60's "center
+-- spawn").
 function MazeGeometry.TileCellCenter(anchorX: number, anchorZ: number, col: number, row: number, gridSize: number, cellSize: number): (number, number)
 	local worldX = anchorX + (col - (gridSize + 1) / 2) * cellSize
 	local worldZ = anchorZ + (row - (gridSize + 1) / 2) * cellSize

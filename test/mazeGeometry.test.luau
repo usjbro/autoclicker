@@ -61,11 +61,27 @@ test("CenterCell returns the true middle of an odd-sized grid", function()
 	assertEqual(row, 5, "row")
 end)
 
-test("TileCellCenter places the center cell exactly on the anchor", function()
+test("TileCellCenter places the center cell exactly on the anchor for an odd gridSize", function()
 	local centerCol, centerRow = MazeGeometry.CenterCell(9)
 	local x, z = MazeGeometry.TileCellCenter(100, -200, centerCol, centerRow, 9, 18)
 	assertEqual(x, 100, "x")
 	assertEqual(z, -200, "z")
+end)
+
+-- Every real WING_CONFIGS entry (16/32/64/128) is even, so this case --
+-- not just the odd one above -- is what actually matters in production.
+-- An even-sized grid has no cell exactly at the true geometric center (it
+-- falls on a cell *boundary*), so the chosen center cell is expected to
+-- land half a cellSize off the anchor, not on it -- see MazeGeometry.lua's
+-- own TileCellCenter comment. This test exists specifically so that fact
+-- is documented and verified, not just true by accident.
+test("TileCellCenter offsets the center cell by half a cellSize for an even gridSize", function()
+	local centerCol, centerRow = MazeGeometry.CenterCell(16)
+	assertEqual(centerCol, 9, "center col")
+	assertEqual(centerRow, 9, "center row")
+	local x, z = MazeGeometry.TileCellCenter(100, -200, centerCol, centerRow, 16, 18)
+	assertEqual(x, 109, "x offset by half a cellSize (9)")
+	assertEqual(z, -191, "z offset by half a cellSize (9)")
 end)
 
 test("TileCellCenter offsets non-center cells by cellSize per step", function()
