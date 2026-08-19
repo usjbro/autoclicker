@@ -97,6 +97,24 @@ local function syncPlayer(player: Player)
 	SyncState:FireClient(player, session)
 end
 
+-- ResetEvent/RebirthEvent both directly call DataManager.Save (a
+-- synchronous SetAsync) on every accepted fire, unlike every other handler
+-- below -- Roblox's DataStore request budget is shared per server
+-- instance, not per player, so a modified client spamming either with no
+-- cooldown could exhaust it and degrade save reliability for every player
+-- on the server, not just itself. Checked and stamped before
+-- SessionStore.With is even entered (not inside its callback, which can
+-- yield on lock contention and let two fires race past the check before
+-- either stamps), so a flood of fires -- cooldown-rejected or not -- can't
+-- pile up lock contention or duplicate DataManager.Save calls. Shared
+-- between the two events since they guard the same underlying resource.
+local RESET_REBIRTH_COOLDOWN_SECONDS = 3
+local lastResetOrRebirthAt: { [number]: number } = {}
+local function isOnResetRebirthCooldown(userId: number): boolean
+	local last = lastResetOrRebirthAt[userId]
+	return last ~= nil and (os.clock() - last) < RESET_REBIRTH_COOLDOWN_SECONDS
+end
+
 -- Copies every field from newValues into session in place, rather than
 -- replacing the stored session with a new table outright. Other code (e.g.
 -- RobuxPurchaseManager) can hold a reference to a player's session across a
@@ -210,6 +228,14 @@ end)
 
 -- [SERVER] Handle Reset
 ResetEvent.OnServerEvent:Connect(function(player)
+	if isOnResetRebirthCooldown(player.UserId) then return end
+	-- Stamped here, before SessionStore.With can yield waiting on the
+	-- per-user lock, not inside the callback -- otherwise two fires that
+	-- both pass the cooldown check while queued behind a contended lock
+	-- (e.g. this player's own concurrent ClickEvent) would both go on to
+	-- run the callback and both hit DataManager.Save below, defeating the
+	-- cooldown entirely.
+	lastResetOrRebirthAt[player.UserId] = os.clock()
 	SessionStore.With(player.UserId, function(session)
 		-- Captured before ResetProgress zeroes it: only force a leaderboard
 		-- write for a player who actually had a nonzero score to wipe.
@@ -244,6 +270,12 @@ end)
 
 -- [SERVER] Handle Rebirth
 RebirthEvent.OnServerEvent:Connect(function(player)
+	if isOnResetRebirthCooldown(player.UserId) then return end
+	-- Stamped before SessionStore.With, same reasoning as ResetEvent above --
+	-- covers a CanRebirth-rejected fire too, which is fine: the cooldown is
+	-- guarding against lock contention and DataStore-budget spam, not
+	-- specifically successful rebirths.
+	lastResetOrRebirthAt[player.UserId] = os.clock()
 	SessionStore.With(player.UserId, function(session)
 		if not GameLogic.CanRebirth(session) then return end
 
@@ -313,6 +345,11 @@ Players.PlayerRemoving:Connect(function(player)
 		DataManager.Save(player, session)
 		LeaderboardManager.SaveScore(player, session.score)
 	end)
+	-- lastResetOrRebirthAt is keyed by UserId outside SessionStore, so it
+	-- needs its own cleanup here -- otherwise every distinct player who ever
+	-- fires Reset/Rebirth leaves a permanent entry for the life of the
+	-- server process.
+	lastResetOrRebirthAt[player.UserId] = nil
 end)
 
 -- Game Loop (Auto-clickers)
