@@ -545,6 +545,7 @@ local SIGN_TARGET_WIDTH = 14 -- studs -- every word scales to fill this, regardl
 local SIGN_CENTER_Y = 20
 local SIGN_TUBE_RADIUS = 0.2
 local SIGN_LETTER_SPACING = 0.08 -- in glyph-local units, same scale as NeonScript.GLYPHS' own ~0.5-wide letters
+local SIGN_VERTICAL_PADDING = 1.5 -- studs of backing-plate margin above/below the tallest/lowest stroke
 
 local function buildPortal(mapFolder: Folder, wingName: string)
 	local pos = PORTAL_POSITIONS[wingName]
@@ -575,8 +576,31 @@ local function buildPortal(mapFolder: Folder, wingName: string)
 	local wordPath = NeonScript.WordPath(DIFFICULTY_LABELS[wingName], SIGN_LETTER_SPACING)
 	local scale = if wordPath.width > 0 then SIGN_TARGET_WIDTH / wordPath.width else 1
 
+	-- The word's actual rendered vertical extent, in glyph-local units --
+	-- read directly from its points rather than assumed from a fixed
+	-- constant. A prior version assumed glyph-y 0.3 was always the vertical
+	-- center and gave the backing plate a fixed 3-stud height regardless of
+	-- word/scale; since scale is driven entirely by fitting SIGN_TARGET_WIDTH
+	-- (short words like "EASY"/"HARD" scale up more than long ones), that
+	-- same scale also stretched the letters' height well past the fixed
+	-- plate -- confirmed via a diagnostic script showing "EASY"'s tubes
+	-- reaching a full stud above the plate's top edge, matching a Studio
+	-- screenshot of tube fragments floating above a bare plate with no
+	-- readable letters on its face. Sizing/centering the plate on the real
+	-- extent makes every word fit its own sign, not just ones that happen to
+	-- match the assumed range.
+	local minRawY, maxRawY = math.huge, -math.huge
+	for _, run in ipairs(wordPath.runs) do
+		for _, p in ipairs(run) do
+			minRawY = math.min(minRawY, p.y)
+			maxRawY = math.max(maxRawY, p.y)
+		end
+	end
+	local rawCenterY = if minRawY <= maxRawY then (minRawY + maxRawY) / 2 else 0.3
+	local signHeight = (if minRawY <= maxRawY then (maxRawY - minRawY) * scale else 0) + SIGN_VERTICAL_PADDING
+
 	newPart(folder, wingName .. "PortalSign", {
-		Size = Vector3.new(SIGN_TARGET_WIDTH + 2, 3, 0.5),
+		Size = Vector3.new(SIGN_TARGET_WIDTH + 2, signHeight, 0.5),
 		CFrame = CFrame.new(signWorldPosition(pos, 0, SIGN_CENTER_Y)) * (if pos.axis == "X" then CFrame.Angles(0, math.rad(90), 0) else CFrame.Angles(0, 0, 0)),
 		Color = DARK,
 		CanCollide = false,
@@ -587,7 +611,7 @@ local function buildPortal(mapFolder: Folder, wingName: string)
 		local worldPoints = {}
 		for _, p in ipairs(run) do
 			local localX = (p.x - wordPath.width / 2) * scale
-			local localY = SIGN_CENTER_Y + (p.y - 0.3) * scale
+			local localY = SIGN_CENTER_Y + (p.y - rawCenterY) * scale
 			table.insert(worldPoints, signWorldPosition(pos, localX, localY))
 		end
 		buildNeonTube(folder, wingName .. "SignRun" .. runIndex, worldPoints, SIGN_TUBE_RADIUS, theme.trimColor)
