@@ -17,7 +17,7 @@
 # Usage: ROBLOX_API_KEY=... ROBLOX_UNIVERSE_ID=... ROBLOX_PLACE_ID=... ./test/openCloudSpike.sh
 set -euo pipefail
 
-: "${ROBLOX_API_KEY:?Set ROBLOX_API_KEY (export it, don't inline it)}"
+: "${ROBLOX_API_KEY:?Set ROBLOX_API_KEY -- export it, do not inline it}"
 : "${ROBLOX_UNIVERSE_ID:?Set ROBLOX_UNIVERSE_ID}"
 : "${ROBLOX_PLACE_ID:?Set ROBLOX_PLACE_ID}"
 
@@ -27,12 +27,18 @@ SCRIPT_CONTENT="$(cat "$SCRIPT_DIR/spike.luau")"
 BASE_URL="https://apis.roblox.com/cloud/v2"
 CREATE_URL="$BASE_URL/universes/$ROBLOX_UNIVERSE_ID/places/$ROBLOX_PLACE_ID/luau-execution-session-tasks"
 
+# Built as a plain variable, not piped straight into curl inside a command
+# substitution -- macOS's stock /bin/bash (3.2, frozen since 2007) has real
+# bugs attributing set -u errors to the wrong variable/line when a pipeline
+# lives inside a `$(...)` substitution. This form works correctly on both
+# bash 3.2 and any modern shell.
+JSON_PAYLOAD="$(jq -n --arg script "$SCRIPT_CONTENT" '{script: $script}')"
+
 echo "Submitting task to $CREATE_URL ..." >&2
-CREATE_RESPONSE="$(jq -n --arg script "$SCRIPT_CONTENT" '{script: $script}' \
-	| curl -sS -X POST "$CREATE_URL" \
-		-H "x-api-key: $ROBLOX_API_KEY" \
-		-H "Content-Type: application/json" \
-		--data-binary @-)"
+CREATE_RESPONSE="$(curl -sS -X POST "$CREATE_URL" \
+	-H "x-api-key: $ROBLOX_API_KEY" \
+	-H "Content-Type: application/json" \
+	--data-binary "$JSON_PAYLOAD")"
 
 TASK_PATH="$(echo "$CREATE_RESPONSE" | jq -r '.path // empty')"
 if [ -z "$TASK_PATH" ]; then
