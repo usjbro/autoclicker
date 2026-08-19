@@ -17,10 +17,15 @@ to every RemoteEvent, as fast as possible, right now?**
 
 Read and check every handler in:
 - `src/server/GameService.server.lua` (`ClickEvent`, `PurchaseEvent`, `ResetEvent`,
-  `RebirthEvent`, `UpdateSpeedSettingsEvent`)
+  `RebirthEvent`, `UpdateSpeedSettingsEvent`, `PurchaseItemEvent`, `EquipCosmeticEvent`,
+  `ActivateFlightEvent`)
 - `src/server/RobuxPurchaseManager.lua` (`MarketplaceService.ProcessReceipt`)
 - `src/server/MovementSystem.lua`, `DataManager.lua`, `LeaderboardManager.lua`,
-  `SessionStore.lua`
+  `SessionStore.lua`, `CosmeticsSystem.lua`, `FlightSystem.lua`
+- `src/shared/GameHandlers.lua` — pure orchestration extracted out of
+  `ResetEvent`/`RebirthEvent` (no RemoteEvent-facing arguments of its own, so it adds
+  no new input-validation surface by itself, but check that `GameService.server.lua`'s
+  dep-closures still wire it to the real, session-locked calls).
 
 ## Checklist
 
@@ -53,10 +58,27 @@ these — don't stop at the first pass/fail per handler, check every item per ha
    justified).
 
 6. **Rate-of-fire / flood risk**: does the handler have any debounce/throttle
-   protecting against a modified client firing it in a tight loop? Note explicitly
-   which of `PurchaseEvent`/`ResetEvent`/`RebirthEvent` (all of which can trigger
-   `DataManager.Save`, a real DataStore write) currently have none — this is a known
-   gap, report it as a finding rather than silently assuming it's handled.
+   protecting against a modified client firing it in a tight loop? This was a real,
+   previously-shipped gap in `ResetEvent`/`RebirthEvent` (both call `DataManager.Save`,
+   a real DataStore write, on every accepted fire — a flood could exhaust the whole
+   server's shared DataStore request budget) — since fixed (see
+   `RESET_REBIRTH_COOLDOWN_SECONDS`/`isOnResetRebirthCooldown` in
+   `GameService.server.lua`): a shared per-userId cooldown, checked *and stamped*
+   **before** `SessionStore.With` is even entered, not inside its callback — stamping
+   inside the callback would let two fires that both pass the check while queued
+   behind a contended lock both go on to run and both hit `DataManager.Save`,
+   defeating the cooldown entirely. Use this as the reference pattern for any new
+   handler that does a real DataStore write on every fire. Two more established idioms
+   worth checking for on handlers that DON'T write to DataStore but still do
+   non-trivial work per fire: `PurchaseItemEvent`'s "already owned, no-op" guard and
+   `EquipCosmeticEvent`'s "already in that requested state, no-op" guard (the latter
+   was itself a real shipped gap — every fire, even a repeat of the current value, re-
+   ran `CosmeticsSystem.ApplyEquippedCosmetic`'s full `Instance.new`/`Destroy` churn
+   plus a whole-session `SyncState` broadcast, until fixed). `ActivateFlightEvent` is
+   separately protected by `FlightSystem`'s own cooldown. `ClickEvent` deliberately has
+   none of this — unlimited clicking only affects that one player's own score/
+   leaderboard standing, not shared server resources, an accepted design tradeoff, not
+   an oversight to flag.
 
 7. **Atomic receipt claims**: for any DataStore-backed purchase/grant path, is the
    claim atomic (`UpdateAsync`, check-and-set in one call) rather than a separate
