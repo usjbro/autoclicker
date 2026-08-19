@@ -355,6 +355,16 @@ end)
 -- --!strict.
 EquipCosmeticEvent.OnServerEvent:Connect(function(player, cosmeticId)
 	SessionStore.With(player.UserId, function(session)
+		-- Already equipped -- also doubles as this handler's debounce (same
+		-- idiom as PurchaseItemEvent's "already owned" guard and
+		-- wireMazeGoal's "already granted" check above): without it, a
+		-- modified client repeatedly firing the same cosmeticId re-runs
+		-- CosmeticsSystem.ApplyEquippedCosmetic's full Instance.new/Destroy
+		-- churn (up to 4 instances) plus a whole-session SyncState broadcast
+		-- on every single fire, unlike every other handler in this file,
+		-- which only does real work once per state change.
+		if cosmeticId == session.equippedCosmetic then return end
+
 		if cosmeticId == "None" then
 			session.equippedCosmetic = "None"
 		elseif cosmeticId == "FlameTrail" and session.ownedFlameTrail then
