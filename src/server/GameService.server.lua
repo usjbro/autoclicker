@@ -12,6 +12,7 @@ local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseMa
 local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
 local CosmeticsSystem = require(script.Parent:WaitForChild("CosmeticsSystem"))
 local FlightSystem = require(script.Parent:WaitForChild("FlightSystem"))
+local HazardTrailSystem = require(script.Parent:WaitForChild("HazardTrailSystem"))
 local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 
@@ -472,5 +473,8 @@ MovementSystem.Start(SessionStore)
 
 -- Start Cosmetics System (re-applies the equipped trail on every character (re)spawn)
 CosmeticsSystem.Start(SessionStore)
+
+-- Start Hazard Trail System (damaging ground trail for FlameTrail/LightTrail wearers)
+HazardTrailSystem.Start(SessionStore)
 
 print("Autoclicker Server Initialized")

@@ -27,11 +27,12 @@ local LeaderboardUpdate = ReplicatedStorage:WaitForChild("LeaderboardUpdate")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Characters spawn and walk around the void floor -- hide the default
--- health/backpack UI anyway since this game has no combat/damage and they'd
--- just be unused chrome over our custom GUI.
+-- Characters spawn and walk around the void floor. Backpack stays hidden --
+-- there's no inventory/tools, so it'd just be unused chrome over our custom
+-- GUI. Health stays visible (unlike Backpack): HazardTrailSystem.lua's
+-- FlameTrail/LightTrail ground hazard deals real Humanoid damage, so hiding
+-- the only feedback for that would make it invisible to the player taking it.
 pcall(function()
-	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
 	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 end)
 
