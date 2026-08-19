@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConstants = require(Shared:WaitForChild("GameConstants"))
 local GameLogic = require(Shared:WaitForChild("GameLogic"))
+local GameHandlers = require(Shared:WaitForChild("GameHandlers"))
 local DataManager = require(script.Parent:WaitForChild("DataManager"))
 local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManager"))
 local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseManager"))
@@ -120,17 +121,6 @@ local function isOnResetRebirthCooldown(userId: number): boolean
 	return last ~= nil and (os.clock() - last) < RESET_REBIRTH_COOLDOWN_SECONDS
 end
 
--- Copies every field from newValues into session in place, rather than
--- replacing the stored session with a new table outright. Other code (e.g.
--- RobuxPurchaseManager) can hold a reference to a player's session across a
--- yield; replacing the table wholesale would silently orphan that reference
--- from a concurrent Reset/Rebirth.
-local function applyInPlace(session: GameLogic.Session, newValues: GameLogic.Session)
-	for key, value in pairs(newValues) do
-		(session :: any)[key] = value
-	end
-end
-
 -- Maze completion rewards: wired here, not in MapBuilder.lua (which stays
 -- pure geometry -- see its own top-of-file comment), by finding each wing's
 -- named goal part under workspace.Map (recursive find -- goal parts live
@@ -242,34 +232,34 @@ ResetEvent.OnServerEvent:Connect(function(player)
 	-- cooldown entirely.
 	lastResetOrRebirthAt[player.UserId] = os.clock()
 	SessionStore.With(player.UserId, function(session)
-		-- Captured before ResetProgress zeroes it: only force a leaderboard
-		-- write for a player who actually had a nonzero score to wipe.
-		-- Otherwise a player who never played (score already 0, no existing
-		-- leaderboard entry) would get a spurious "0 score" row on reset --
-		-- exactly what SaveScore's own <=0 guard exists to prevent.
-		local hadProgress = session.score > 0
-		applyInPlace(session, GameLogic.ResetProgress(session))
-		if hadProgress then
-			-- Force the leaderboard entry to reflect the wipe immediately --
-			-- otherwise a stale pre-reset score can linger until the player
-			-- earns points again (see issue #13).
-			LeaderboardManager.SaveScore(player, session.score, true)
-		end
-		-- Sync (score/WalkSpeed reset, via syncPlayer) before the durable
-		-- save below: DataManager.Save is a direct (non-task.spawn'd) yield
-		-- that can take seconds under DataStore write throttling, and unlike
+		-- Orchestration (force the leaderboard write only if the player had
+		-- progress worth wiping, then sync, then durably save) lives in
+		-- GameHandlers.HandleReset, unit-tested headlessly under Lune
+		-- (test/gameHandlers.test.luau) with fake deps -- this closure only
+		-- wires each dep to this file's real Roblox-side calls. Sync
+		-- (score/WalkSpeed reset, via syncPlayer) before the durable save:
+		-- DataManager.Save is a direct (non-task.spawn'd) yield that can
+		-- take seconds under DataStore write throttling, and unlike
 		-- RobuxPurchaseManager's grant flow, nothing here needs to roll back
 		-- on a save failure -- so there's no reason to make the player wait
-		-- for it before seeing their reset take effect.
-		syncPlayer(player)
-		-- Save durably right away rather than only relying on the eventual
-		-- PlayerRemoving save -- a player who resets and then disconnects
-		-- uncleanly (a crashed server, an abrupt Studio Stop) shouldn't get
-		-- their old, pre-reset score back on next load. Mirrors the same
-		-- "don't depend on a natural disconnect" durability RobuxPurchaseManager
-		-- already applies to purchases. DataManager.Save already no-ops if
-		-- no DataStore is available, so no separate guard is needed here.
-		DataManager.Save(player, session)
+		-- for it before seeing their reset take effect. Save durably right
+		-- away rather than only relying on the eventual PlayerRemoving save
+		-- -- a player who resets and then disconnects uncleanly (a crashed
+		-- server, an abrupt Studio Stop) shouldn't get their old, pre-reset
+		-- score back on next load.
+		GameHandlers.HandleReset(session, {
+			saveScore = function(s, force)
+				-- Otherwise a stale pre-reset score can linger until the
+				-- player earns points again (see issue #13).
+				LeaderboardManager.SaveScore(player, s.score, force)
+			end,
+			sync = function()
+				syncPlayer(player)
+			end,
+			saveSession = function(s)
+				DataManager.Save(player, s)
+			end,
+		})
 	end)
 end)
 
@@ -282,28 +272,32 @@ RebirthEvent.OnServerEvent:Connect(function(player)
 	-- specifically successful rebirths.
 	lastResetOrRebirthAt[player.UserId] = os.clock()
 	SessionStore.With(player.UserId, function(session)
-		if not GameLogic.CanRebirth(session) then return end
-
-		applyInPlace(session, GameLogic.PerformRebirth(session))
-		-- PerformRebirth clears owned items/equippedCosmetic in session data,
-		-- but that alone doesn't touch whatever Trail/ParticleEmitter is
-		-- already live on this player's currently-spawned character -- only
-		-- CharacterAdded and EquipCosmeticEvent otherwise call this. Without
-		-- it, a player who rebirths while a cosmetic is equipped would keep
-		-- visibly trailing it until their next respawn, even though the
-		-- server-authoritative session (and the Shop UI, via syncPlayer
-		-- below) already say it's gone.
-		CosmeticsSystem.ApplyEquippedCosmetic(player, session)
-		-- Force the leaderboard entry to reflect the wipe immediately --
-		-- otherwise a stale pre-rebirth score can linger until the player
-		-- earns points again (see issue #13).
-		LeaderboardManager.SaveScore(player, session.score, true)
-		-- Sync before the durable save -- same reasoning as ResetEvent above.
-		syncPlayer(player)
-		-- Save durably right away -- same reasoning as ResetEvent above: a
-		-- rebirth (and the permanent bonus it grants) shouldn't be lost to
-		-- an unclean disconnect before the next natural save.
-		DataManager.Save(player, session)
+		-- Same GameHandlers-based orchestration as ResetEvent above (see
+		-- GameHandlers.HandleRebirth and its own Lune tests), plus
+		-- reapplying the (now-cleared) cosmetic to the live character --
+		-- PerformRebirth clears owned items/equippedCosmetic in session
+		-- data, but that alone doesn't touch whatever Trail/ParticleEmitter
+		-- is already live on this player's currently-spawned character;
+		-- without this, a player who rebirths while a cosmetic is equipped
+		-- would keep visibly trailing it until their next respawn, even
+		-- though the server-authoritative session (and the Shop UI, via
+		-- syncPlayer) already say it's gone.
+		GameHandlers.HandleRebirth(session, {
+			applyCosmetic = function(s)
+				CosmeticsSystem.ApplyEquippedCosmetic(player, s)
+			end,
+			saveScore = function(s, force)
+				-- Otherwise a stale pre-rebirth score can linger until the
+				-- player earns points again (see issue #13).
+				LeaderboardManager.SaveScore(player, s.score, force)
+			end,
+			sync = function()
+				syncPlayer(player)
+			end,
+			saveSession = function(s)
+				DataManager.Save(player, s)
+			end,
+		})
 	end)
 end)
 
