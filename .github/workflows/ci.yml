@@ -50,8 +50,11 @@ jobs:
       - name: Add tools to PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Run Lune test suite
-        run: lune run test/gameLogic.test.luau
+      - name: Run Lune test suites
+        run: |
+          lune run test/gameLogic.test.luau
+          lune run test/mazeGeometry.test.luau
+          lune run test/gameHandlers.test.luau
 
       - name: Verify Rojo project builds
         run: rojo build default.project.json -o /tmp/ci-build.rbxlx
