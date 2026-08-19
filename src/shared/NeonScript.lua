@@ -58,13 +58,32 @@ end
 -- alphabet, since every glyph here is a hand-authored curve composition,
 -- not a real font.
 local GLYPH_STROKES: { [string]: { Stroke } } = {
+	-- A previous version built A/E from mostly-closed loop arcs (a near-full
+	-- circle for A, a figure-8 for E) -- confirmed by Studio screenshots to
+	-- read as "O" and "G" respectively, since a closed loop is precisely the
+	-- feature that DEFINES those letters, not A/E. Real neon-sign design
+	-- guidance (researched: Yellowpop/Voodoo Neon on cursive neon fonts)
+	-- consistently stresses minimal flourish and clear per-letter
+	-- distinguishing features over ornamentation -- these are rebuilt as
+	-- angular monoline strokes (A's two legs + crossbar, E's spine + three
+	-- bars) using the "retrace a short already-drawn segment instead of
+	-- jumping to a new point" technique (harmless -- an exact overlap is
+	-- invisible, unlike a jump, which always draws a real stray diagonal
+	-- tube) so every letter's defining structure survives even though the
+	-- pen can't lift within a glyph.
 	A = {
-		{ kind = "arc", cx = 0.22, cy = 0.32, r = 0.22, startDeg = 0, endDeg = 350, segments = 10 },
-		{ kind = "arc", cx = 0.48, cy = 0.5, r = 0.18, startDeg = 200, endDeg = 80, segments = 6 },
+		{ kind = "line", x1 = 0.0, y1 = 0.0, x2 = 0.22, y2 = 0.65 },
+		{ kind = "line", x1 = 0.22, y1 = 0.65, x2 = 0.44, y2 = 0.0 },
+		{ kind = "line", x1 = 0.44, y1 = 0.0, x2 = 0.365, y2 = 0.22 }, -- retrace partway up the right leg (invisible overlap) to reach crossbar height
+		{ kind = "line", x1 = 0.365, y1 = 0.22, x2 = 0.075, y2 = 0.22 }, -- crossbar
 	},
 	E = {
-		{ kind = "arc", cx = 0.28, cy = 0.48, r = 0.22, startDeg = 70, endDeg = 320, segments = 8 },
-		{ kind = "arc", cx = 0.25, cy = 0.18, r = 0.15, startDeg = 300, endDeg = 120, segments = 6 },
+		{ kind = "line", x1 = 0.35, y1 = 0.65, x2 = 0.0, y2 = 0.65 }, -- top bar
+		{ kind = "line", x1 = 0.0, y1 = 0.65, x2 = 0.0, y2 = 0.0 }, -- spine
+		{ kind = "line", x1 = 0.0, y1 = 0.0, x2 = 0.35, y2 = 0.0 }, -- bottom bar
+		{ kind = "line", x1 = 0.35, y1 = 0.0, x2 = 0.0, y2 = 0.0 }, -- retrace bottom bar back (invisible overlap)
+		{ kind = "line", x1 = 0.0, y1 = 0.0, x2 = 0.0, y2 = 0.32 }, -- retrace partway up the spine (invisible overlap) to middle height
+		{ kind = "line", x1 = 0.0, y1 = 0.32, x2 = 0.3, y2 = 0.32 }, -- middle bar
 	},
 	S = {
 		{ kind = "arc", cx = 0.25, cy = 0.48, r = 0.18, startDeg = -30, endDeg = 200, segments = 7 },
@@ -116,10 +135,18 @@ local GLYPH_STROKES: { [string]: { Stroke } } = {
 		{ kind = "arc", cx = 0.25, cy = 0.25, r = 0.2, startDeg = 180, endDeg = 380, segments = 10 },
 		{ kind = "line", x1 = 0.45, y1 = 0.25, x2 = 0.45, y2 = 0.6 },
 	},
+	-- A previous version connected the two stems with a rounded arc near
+	-- their top -- confirmed by a Studio screenshot to read as "N" (its
+	-- curvature read as a diagonal, N's defining feature, rather than a
+	-- flat crossbar, H's). Rebuilt with a straight horizontal crossbar at
+	-- the stems' actual midpoint, using the same retrace-not-jump technique
+	-- as A/E above.
 	H = {
 		{ kind = "line", x1 = 0.1, y1 = 0.0, x2 = 0.1, y2 = 0.65 },
-		{ kind = "arc", cx = 0.25, cy = 0.5, r = 0.18, startDeg = 180, endDeg = 0, segments = 6 },
-		{ kind = "line", x1 = 0.43, y1 = 0.5, x2 = 0.43, y2 = 0.0 },
+		{ kind = "line", x1 = 0.1, y1 = 0.65, x2 = 0.1, y2 = 0.325 }, -- retrace down to crossbar height (invisible overlap)
+		{ kind = "line", x1 = 0.1, y1 = 0.325, x2 = 0.43, y2 = 0.325 }, -- crossbar
+		{ kind = "line", x1 = 0.43, y1 = 0.325, x2 = 0.43, y2 = 0.65 }, -- upper right stem
+		{ kind = "line", x1 = 0.43, y1 = 0.65, x2 = 0.43, y2 = 0.0 }, -- back down, full right stem (covers upper again + lower)
 	},
 	R = {
 		{ kind = "line", x1 = 0.1, y1 = 0.0, x2 = 0.1, y2 = 0.65 },
