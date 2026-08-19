@@ -74,10 +74,37 @@ See `references/handler-template.lua` for an annotated template mirroring the ex
    `setScreen()` pattern if this adds a new screen/panel.
 
 9. **Update tests in both suites** if `GameLogic.lua`/`NumberFormat.lua`/
-   `SpeedCalculator.lua` logic changed:
+   `SpeedCalculator.lua`/`MazeGeometry.lua`/`GameHandlers.lua` logic changed:
    - `src/tests/*.spec.lua` (TestEZ, runs in a live Roblox server)
-   - `test/gameLogic.test.luau` (Lune, headless) — keep test cases in sync between
-     the two per CLAUDE.md; don't add a case to one and forget the other.
+   - `test/*.test.luau` (Lune, headless — `gameLogic.test.luau`, `mazeGeometry.test.luau`,
+     `gameHandlers.test.luau`) — keep test cases in sync between the two suites per
+     CLAUDE.md; don't add a case to one and forget the other. CI runs all three Lune
+     files (not just `gameLogic.test.luau` — that was itself a real, previously-shipped
+     gap, see #77), so a new pure-logic module needs its own `test/<name>.test.luau`
+     added to `.github/workflows/ci.yml`'s "Run Lune test suites" step, not just a
+     local test run, to actually be enforced on every PR.
+
+   **If the new feature's handler has real orchestration** — more than one
+   conditional side effect, or logic worth answering "does X only happen when Y" for
+   (the way `ResetEvent`'s "does it force-save the leaderboard only when the player
+   had progress" needed answering) — consider extracting that orchestration into a
+   `src/shared/*.lua` module with every side effect (DataStore save, leaderboard
+   write, client sync, etc.) passed in as an injected dependency function, the way
+   `GameHandlers.lua`'s `HandleReset`/`HandleRebirth` do. This makes the sequencing
+   itself unit-testable under Lune with fake deps that record what they were called
+   with — instead of only ever exercisable by a human clicking the button in Studio.
+   `GameService.server.lua`'s own handler then becomes thin wiring: acquire the lock,
+   build the deps closures, delegate. One real gotcha hit doing this: if the module
+   references an exported type (like `GameLogic.Session`) from another module it
+   requires via the Lune/Rojo dual-load branch (`if script then require(script.Parent.X)
+   else require("./X") end`), `luau-lsp` can't carry the exported type through that
+   multi-branch assignment (it infers `any`, and `any.Session` isn't a valid type) — a
+   `::` cast and a dead-code single-`require` alias were both tried and neither
+   resolved it either; duplicating the type definition directly (with a comment
+   explaining why, and noting it's self-checking since a drift would fail to
+   type-check the next line that passes it to the real module's functions) was what
+   actually worked. See `GameHandlers.lua`'s own top-of-file comment for the full
+   story.
 
 10. **Before opening a PR**, run all three local checks CI also runs. Neither of the
     first two executes or type-checks server/client Luau — `lune` only runs the
@@ -87,6 +114,8 @@ See `references/handler-template.lua` for an annotated template mirroring the ex
     that class of bug:
     ```sh
     lune run test/gameLogic.test.luau
+    lune run test/mazeGeometry.test.luau
+    lune run test/gameHandlers.test.luau
     rojo build default.project.json -o /tmp/check.rbxlx
     rojo sourcemap default.project.json -o sourcemap.json
     luau-lsp analyze --platform roblox --sourcemap sourcemap.json --definitions globalTypes.d.luau src/server src/shared src/client

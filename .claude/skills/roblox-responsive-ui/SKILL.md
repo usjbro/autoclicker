@@ -82,6 +82,8 @@ just new panels.
    shared-logic regressions, Rojo project/sync errors):
    ```sh
    lune run test/gameLogic.test.luau
+   lune run test/mazeGeometry.test.luau
+   lune run test/gameHandlers.test.luau
    rojo build default.project.json -o /tmp/check.rbxlx
    ```
 
