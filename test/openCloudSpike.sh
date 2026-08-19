@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Tier 2 feasibility spike: submits test/spike.luau to Roblox's Open Cloud
-# Luau-execution API against a published place, polls until it finishes, and
-# prints the result. Confirms the whole round trip works before any of this
-# gets wired into CI. See the "Confirmed schema" note in
-# ~/.claude/plans/soft-honking-mitten.md for where this request/response
-# shape came from.
+# Luau-execution API against a published place, polls until it finishes,
+# and prints the raw result. Diagnostic/manual tool, not run by CI --
+# test/openCloudStructuralCheck.sh is the CI-integrated version that
+# actually asserts on the result.
 #
 # Requires:
 #   ROBLOX_API_KEY    - Open Cloud API key with Luau Execution permission on
@@ -22,54 +21,7 @@ set -euo pipefail
 : "${ROBLOX_PLACE_ID:?Set ROBLOX_PLACE_ID}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT_CONTENT="$(cat "$SCRIPT_DIR/spike.luau")"
+# shellcheck source=lib/openCloudRun.sh
+source "$SCRIPT_DIR/lib/openCloudRun.sh"
 
-BASE_URL="https://apis.roblox.com/cloud/v2"
-CREATE_URL="$BASE_URL/universes/$ROBLOX_UNIVERSE_ID/places/$ROBLOX_PLACE_ID/luau-execution-session-tasks"
-
-# Built as a plain variable, not piped straight into curl inside a command
-# substitution -- macOS's stock /bin/bash (3.2, frozen since 2007) has real
-# bugs attributing set -u errors to the wrong variable/line when a pipeline
-# lives inside a `$(...)` substitution. This form works correctly on both
-# bash 3.2 and any modern shell.
-JSON_PAYLOAD="$(jq -n --arg script "$SCRIPT_CONTENT" '{script: $script}')"
-
-echo "Submitting task to $CREATE_URL ..." >&2
-CREATE_RESPONSE="$(curl -sS -X POST "$CREATE_URL" \
-	-H "x-api-key: $ROBLOX_API_KEY" \
-	-H "Content-Type: application/json" \
-	--data-binary "$JSON_PAYLOAD")"
-
-TASK_PATH="$(echo "$CREATE_RESPONSE" | jq -r '.path // empty')"
-if [ -z "$TASK_PATH" ]; then
-	echo "Failed to create task. Response:" >&2
-	echo "$CREATE_RESPONSE" | jq . >&2
-	exit 1
-fi
-echo "Task created: $TASK_PATH" >&2
-
-STATE="QUEUED"
-for _ in $(seq 1 40); do
-	sleep 3.5
-	POLL_RESPONSE="$(curl -sS -X GET "$BASE_URL/$TASK_PATH" -H "x-api-key: $ROBLOX_API_KEY")"
-	STATE="$(echo "$POLL_RESPONSE" | jq -r '.state')"
-	echo "State: $STATE" >&2
-	case "$STATE" in
-	COMPLETE)
-		echo "$POLL_RESPONSE" | jq '.output.results'
-		exit 0
-		;;
-	FAILED)
-		echo "Task failed:" >&2
-		echo "$POLL_RESPONSE" | jq '.error' >&2
-		exit 1
-		;;
-	CANCELLED)
-		echo "Task was cancelled." >&2
-		exit 1
-		;;
-	esac
-done
-
-echo "Timed out waiting for task to finish (last state: $STATE)." >&2
-exit 1
+openCloudRun "$SCRIPT_DIR/spike.luau"

@@ -76,3 +76,46 @@ jobs:
           rojo sourcemap default.project.json -o sourcemap.json
           curl -fL -o globalTypes.d.luau "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/${LUAU_LSP_VERSION}/scripts/globalTypes.d.luau"
           luau-lsp analyze --platform roblox --sourcemap sourcemap.json --definitions globalTypes.d.luau src/server src/shared src/client
+
+  # Tier 2 of the test-automation plan: submits test/structuralCheck.luau to
+  # Roblox's Open Cloud Luau Execution API, which runs a real
+  # MapBuilder.Build() inside the actual Roblox engine and asserts
+  # structural properties (goal parts exist and are named correctly, no two
+  # maze wings' actual built geometry overlaps, ReplicatedStorage has
+  # exactly the declared RemoteEvents) that no other check in this file can
+  # -- lune/rojo build/luau-lsp never execute a single line of this game's
+  # actual server/client Luau, only its pure logic, place structure, and
+  # types respectively.
+  #
+  # Important limitation: this runs against whatever is *currently
+  # published* to the live place, not this PR's own uncommitted changes --
+  # there's no publish-to-a-staging-place step wired up yet (that needs an
+  # additional Open Cloud scope this repo doesn't have configured). So a
+  # red result here means "production has drifted/broken," which may or
+  # may not be caused by this specific PR. That's still real, valuable
+  # signal (and the only thing in this repo that would ever catch it), just
+  # not the same guarantee as "this PR's code is correct" -- which is why
+  # this is its own job, not folded into test-and-build (the one check
+  # branch protection currently requires), and not itself a required check
+  # yet. Promote it once it's proven stable across real PRs and (ideally)
+  # a build-and-publish step closes this gap.
+  open-cloud-structural-check:
+    runs-on: ubuntu-latest
+    # Skipped for fork PRs: GitHub withholds repo secrets from
+    # pull_request-triggered runs on forks by design, and this workflow
+    # deliberately never uses pull_request_target (which would defeat that
+    # protection on a public repo -- a malicious fork PR could modify the
+    # workflow/script itself and exfiltrate ROBLOX_API_KEY). Skipping
+    # explicitly, rather than letting the step fail on a missing secret,
+    # avoids every external contributor's PR failing a check they have no
+    # way to fix.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Open Cloud structural check
+        env:
+          ROBLOX_API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          ROBLOX_UNIVERSE_ID: ${{ vars.ROBLOX_UNIVERSE_ID }}
+          ROBLOX_PLACE_ID: ${{ vars.ROBLOX_PLACE_ID }}
+        run: ./test/openCloudStructuralCheck.sh
