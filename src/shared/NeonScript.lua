@@ -70,10 +70,23 @@ local GLYPH_STROKES: { [string]: { Stroke } } = {
 		{ kind = "arc", cx = 0.25, cy = 0.48, r = 0.18, startDeg = -30, endDeg = 200, segments = 7 },
 		{ kind = "arc", cx = 0.25, cy = 0.15, r = 0.18, startDeg = 20, endDeg = 250, segments = 7 },
 	},
+	-- The two diagonal strokes share the exact convergence point (0.27, 0.32)
+	-- -- stroke 1 ends there and stroke 2 starts there -- so the V itself
+	-- renders as one clean, fully connected corner with no jump. Only the
+	-- descender curl (a decorative tail, not needed to read the letter as a
+	-- "Y") is left as an unavoidable jump from stroke 2's end, since a
+	-- single continuous point path can't pass through a 3-way junction
+	-- (top-left, top-right, descender all meeting at one point) without
+	-- doubling back through it at least once. An earlier version used two
+	-- independent arcs here that swept away from each other instead of
+	-- converging, leaving the V not meeting at all (~0.59 glyph-unit gap,
+	-- comparable to the letter's entire width) -- found via a diagnostic
+	-- script auditing every glyph's point-to-point gaps, not just reading
+	-- the stroke data.
 	Y = {
-		{ kind = "arc", cx = 0.15, cy = 0.5, r = 0.18, startDeg = 30, endDeg = 200, segments = 6 },
-		{ kind = "arc", cx = 0.4, cy = 0.5, r = 0.18, startDeg = -20, endDeg = 150, segments = 6 },
-		{ kind = "arc", cx = 0.3, cy = -0.05, r = 0.15, startDeg = 90, endDeg = 300, segments = 6 },
+		{ kind = "line", x1 = 0.02, y1 = 0.6, x2 = 0.27, y2 = 0.32 },
+		{ kind = "line", x1 = 0.27, y1 = 0.32, x2 = 0.52, y2 = 0.6 },
+		{ kind = "arc", cx = 0.27, cy = 0.05, r = 0.15, startDeg = 90, endDeg = 300, segments = 6 },
 	},
 	M = {
 		{ kind = "line", x1 = 0.05, y1 = 0.0, x2 = 0.05, y2 = 0.45 },
