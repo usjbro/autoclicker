@@ -531,13 +531,36 @@ end
 -- world Z) need the sign's width running along world X at a fixed Z; axis
 -- == "X" wings need the opposite (width along world Z at a fixed X) -- a
 -- single hardcoded orientation would silently work for one axis and show
--- the sign edge-on, unreadable, for the other.
-local function signWorldPosition(pos: { x: number, z: number, axis: "X" | "Z" }, localX: number, localY: number): Vector3
+-- the sign edge-on, unreadable, for the other. `depthOffset` moves the
+-- point along the portal's own depth axis (world Z for axis == "Z", world X
+-- for axis == "X") -- 0 for the backing plate itself, a positive offset
+-- (see towardSpawnOffset below) for the tubes, so they sit clearly in front
+-- of the plate's face instead of embedded at its exact center depth. An
+-- earlier version always passed an implicit 0 for every point, including
+-- the tubes -- since the plate is only 0.5 studs thick, a tube (0.4 stud
+-- diameter) centered at that same depth was almost entirely enclosed
+-- inside the opaque plate, poking out by only ~0.05 studs on each face --
+-- fully occluded at any real viewing distance, confirmed by a Studio
+-- screenshot showing a bare plate with no letters visible at all.
+local function signWorldPosition(pos: { x: number, z: number, axis: "X" | "Z" }, localX: number, localY: number, depthOffset: number): Vector3
 	if pos.axis == "Z" then
-		return Vector3.new(pos.x + localX, localY, pos.z)
+		return Vector3.new(pos.x + localX, localY, pos.z + depthOffset)
 	else
-		return Vector3.new(pos.x, localY, pos.z + localX)
+		return Vector3.new(pos.x + depthOffset, localY, pos.z + localX)
 	end
+end
+
+-- Every portal sits directly out from the origin along one compass
+-- direction (see PORTAL_POSITIONS), so "toward spawn" -- the side the
+-- approaching player is actually on, and so the side the tubes need to
+-- offset toward to be visible instead of embedded in the plate -- is always
+-- the opposite sign of whichever coordinate is nonzero for that portal's
+-- axis. Unlike a single hardcoded offset direction, this works for both
+-- wings sharing an axis (e.g. MazeN at z = -50 and MazeS at z = +50 need
+-- opposite offsets, since spawn at z = 0 is on the opposite side of each).
+local function towardSpawnOffset(pos: { x: number, z: number, axis: "X" | "Z" }, distance: number): number
+	local axisValue = if pos.axis == "Z" then pos.z else pos.x
+	return if axisValue >= 0 then -distance else distance
 end
 
 local PORTAL_SIZE = 10
@@ -546,6 +569,10 @@ local SIGN_CENTER_Y = 20
 local SIGN_TUBE_RADIUS = 0.2
 local SIGN_LETTER_SPACING = 0.08 -- in glyph-local units, same scale as NeonScript.GLYPHS' own ~0.5-wide letters
 local SIGN_VERTICAL_PADDING = 1.5 -- studs of backing-plate margin above/below the tallest/lowest stroke
+-- Clears the plate's own half-thickness (0.25) plus the tube's own radius
+-- (0.2) plus a small visible gap, so the entire tube sits proud of the
+-- plate's face rather than merely not-fully-enclosed by it.
+local SIGN_TUBE_DEPTH_OFFSET = 0.6
 
 local function buildPortal(mapFolder: Folder, wingName: string)
 	local pos = PORTAL_POSITIONS[wingName]
@@ -601,18 +628,19 @@ local function buildPortal(mapFolder: Folder, wingName: string)
 
 	newPart(folder, wingName .. "PortalSign", {
 		Size = Vector3.new(SIGN_TARGET_WIDTH + 2, signHeight, 0.5),
-		CFrame = CFrame.new(signWorldPosition(pos, 0, SIGN_CENTER_Y)) * (if pos.axis == "X" then CFrame.Angles(0, math.rad(90), 0) else CFrame.Angles(0, 0, 0)),
+		CFrame = CFrame.new(signWorldPosition(pos, 0, SIGN_CENTER_Y, 0)) * (if pos.axis == "X" then CFrame.Angles(0, math.rad(90), 0) else CFrame.Angles(0, 0, 0)),
 		Color = DARK,
 		CanCollide = false,
 		CanTouch = false,
 	})
 
+	local tubeDepthOffset = towardSpawnOffset(pos, SIGN_TUBE_DEPTH_OFFSET)
 	for runIndex, run in ipairs(wordPath.runs) do
 		local worldPoints = {}
 		for _, p in ipairs(run) do
 			local localX = (p.x - wordPath.width / 2) * scale
 			local localY = SIGN_CENTER_Y + (p.y - rawCenterY) * scale
-			table.insert(worldPoints, signWorldPosition(pos, localX, localY))
+			table.insert(worldPoints, signWorldPosition(pos, localX, localY, tubeDepthOffset))
 		end
 		buildNeonTube(folder, wingName .. "SignRun" .. runIndex, worldPoints, SIGN_TUBE_RADIUS, theme.trimColor)
 	end
