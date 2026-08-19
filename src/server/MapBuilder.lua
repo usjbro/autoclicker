@@ -17,6 +17,7 @@ local MapBuilder = {}
 
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local MazeGeometry = require(Shared:WaitForChild("MazeGeometry"))
+local NeonScript = require(Shared:WaitForChild("NeonScript"))
 
 local DARK = Color3.fromHex("1e1e2f")
 local PANEL = Color3.fromHex("2a2a3f")
@@ -471,6 +472,80 @@ end
 -- wingName .. "Portal" so GameService.server.lua can find it by name after
 -- Build() returns and wire the actual teleport -- this file stays pure
 -- geometry, no RemoteEvents/gameplay state of its own.
+-- A thin, glowing rod-and-ball chain following `points` in order -- a small
+-- Neon Ball "joint" at every point (so consecutive segments blend into one
+-- smooth run instead of showing sharp corners, mimicking a real bent glass
+-- tube) plus a thin Neon box between every consecutive pair, oriented via
+-- the same CFrame.lookAt(center, center + diff.Unit, up) technique
+-- createRamp already uses elsewhere in this file (a box, not a true
+-- Enum.PartType.Cylinder, specifically to reuse that already-proven
+-- orientation technique rather than work out a cylinder's own default-axis
+-- convention from scratch -- a thin square rod reads the same as a round
+-- glass tube at sign scale once it's glowing Neon). Falls back to a
+-- different up-reference when a segment is (near-)vertical, since
+-- CFrame.lookAt's direction and up vectors can't be parallel -- several of
+-- the hand-authored glyphs below have exactly vertical strokes (e.g. "H"'s
+-- stems), so this isn't just a theoretical edge case.
+local function buildNeonTube(folder: Folder, name: string, points: { Vector3 }, radius: number, color: Color3)
+	local diameter = radius * 2
+	for i, point in ipairs(points) do
+		newPart(folder, name .. "Joint" .. i, {
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(diameter, diameter, diameter),
+			CFrame = CFrame.new(point),
+			Color = color,
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+			CanTouch = false,
+		})
+	end
+	for i = 1, #points - 1 do
+		local p0, p1 = points[i], points[i + 1]
+		local diff = p1 - p0
+		local length = diff.Magnitude
+		if length > 0.001 then
+			local direction = diff.Unit
+			local center = p0 + diff / 2
+			local up = Vector3.new(0, 1, 0)
+			if math.abs(direction:Dot(up)) > 0.999 then
+				up = Vector3.new(1, 0, 0)
+			end
+			newPart(folder, name .. "Seg" .. i, {
+				Size = Vector3.new(diameter, diameter, length),
+				CFrame = CFrame.lookAt(center, center + direction, up),
+				Color = color,
+				Material = Enum.Material.Neon,
+				CanCollide = false,
+				CanTouch = false,
+			})
+		end
+	end
+end
+
+-- Maps a glyph-local (localX, localY) point -- localX horizontal along the
+-- word, localY vertical, both already scaled to studs -- onto the vertical
+-- plane in front of this portal, oriented to actually face the portal's
+-- own approach direction. Getting this wrong is exactly the kind of thing
+-- that's easy to miss when only one wing happens to test correctly by
+-- coincidence: axis == "Z" wings (their approach direction runs along
+-- world Z) need the sign's width running along world X at a fixed Z; axis
+-- == "X" wings need the opposite (width along world Z at a fixed X) -- a
+-- single hardcoded orientation would silently work for one axis and show
+-- the sign edge-on, unreadable, for the other.
+local function signWorldPosition(pos: { x: number, z: number, axis: "X" | "Z" }, localX: number, localY: number): Vector3
+	if pos.axis == "Z" then
+		return Vector3.new(pos.x + localX, localY, pos.z)
+	else
+		return Vector3.new(pos.x, localY, pos.z + localX)
+	end
+end
+
+local PORTAL_SIZE = 10
+local SIGN_TARGET_WIDTH = 14 -- studs -- every word scales to fill this, regardless of letter count
+local SIGN_CENTER_Y = 20
+local SIGN_TUBE_RADIUS = 0.2
+local SIGN_LETTER_SPACING = 0.08 -- in glyph-local units, same scale as NeonScript.GLYPHS' own ~0.5-wide letters
+
 local function buildPortal(mapFolder: Folder, wingName: string)
 	local pos = PORTAL_POSITIONS[wingName]
 	local theme = WING_THEME_COLORS[wingName]
@@ -478,8 +553,7 @@ local function buildPortal(mapFolder: Folder, wingName: string)
 	folder.Name = wingName .. "PortalDecor"
 	folder.Parent = mapFolder
 
-	local PORTAL_SIZE = 10
-	local pad = newPart(folder, wingName .. "Portal", {
+	newPart(folder, wingName .. "Portal", {
 		Size = Vector3.new(PORTAL_SIZE, 1, PORTAL_SIZE),
 		CFrame = CFrame.new(pos.x, 0.5, pos.z),
 		Color = theme.structuralColor,
@@ -490,34 +564,34 @@ local function buildPortal(mapFolder: Folder, wingName: string)
 
 	createArch(folder, wingName .. "PortalArch", Vector3.new(pos.x, 0, pos.z), pos.axis, PORTAL_SIZE + 4, 16)
 
-	-- Floating neon sign: a small backing plate with a SurfaceGui/TextLabel
-	-- naming the destination difficulty -- built server-side like every
-	-- other part here (SurfaceGui is a plain child Instance, not
-	-- PlayerGui-only like ScreenGui), no custom uploaded image assets,
-	-- matching this project's existing Unicode-glyph-not-uploaded-images
-	-- constraint for anything text-like.
-	local sign = newPart(folder, wingName .. "PortalSign", {
-		Size = Vector3.new(PORTAL_SIZE, 3, 0.5),
-		CFrame = CFrame.new(pos.x, 20, pos.z),
+	-- Real neon-tube signage: hand-authored cursive glyph paths
+	-- (NeonScript.lua) rendered as glowing Neon rod-and-ball chains, not a
+	-- flat TextLabel -- see the plan this was built from for why a
+	-- TextLabel doesn't read as a neon sign at all. A dark backing plate
+	-- sits behind the tubes (real neon signs are normally mounted on a
+	-- dark board), sized and axis-oriented to the word's own actual scaled
+	-- width via signWorldPosition, same as the tubes themselves -- not the
+	-- flat, orientation-unaware plate the old sign used.
+	local wordPath = NeonScript.WordPath(DIFFICULTY_LABELS[wingName], SIGN_LETTER_SPACING)
+	local scale = if wordPath.width > 0 then SIGN_TARGET_WIDTH / wordPath.width else 1
+
+	newPart(folder, wingName .. "PortalSign", {
+		Size = Vector3.new(SIGN_TARGET_WIDTH + 2, 3, 0.5),
+		CFrame = CFrame.new(signWorldPosition(pos, 0, SIGN_CENTER_Y)) * (if pos.axis == "X" then CFrame.Angles(0, math.rad(90), 0) else CFrame.Angles(0, 0, 0)),
 		Color = DARK,
 		CanCollide = false,
 		CanTouch = false,
 	})
-	local surfaceGui = Instance.new("SurfaceGui")
-	surfaceGui.Name = "SignGui"
-	surfaceGui.Face = Enum.NormalId.Front
-	surfaceGui.LightInfluence = 0
-	surfaceGui.Parent = sign
-	local label = Instance.new("TextLabel")
-	label.Name = "SignLabel"
-	label.Size = UDim2.new(1, 0, 1, 0)
-	label.BackgroundTransparency = 1
-	label.Text = DIFFICULTY_LABELS[wingName]
-	label.TextColor3 = theme.trimColor
-	label.Font = Enum.Font.GothamBold
-	label.TextScaled = true
-	label.Parent = surfaceGui
-	pad.Color = theme.structuralColor
+
+	for runIndex, run in ipairs(wordPath.runs) do
+		local worldPoints = {}
+		for _, p in ipairs(run) do
+			local localX = (p.x - wordPath.width / 2) * scale
+			local localY = SIGN_CENTER_Y + (p.y - 0.3) * scale
+			table.insert(worldPoints, signWorldPosition(pos, localX, localY))
+		end
+		buildNeonTube(folder, wingName .. "SignRun" .. runIndex, worldPoints, SIGN_TUBE_RADIUS, theme.trimColor)
+	end
 end
 
 function MapBuilder.Build(): (boolean, string?)
