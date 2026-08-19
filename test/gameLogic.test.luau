@@ -43,6 +43,10 @@ local function session(overrides: { [string]: any }?)
 		totalClicks = 0,
 		useBaseSpeed = true,
 		speedSliderPercent = 100,
+		ownedWings = false,
+		ownedFlameTrail = false,
+		ownedLightTrail = false,
+		equippedCosmetic = "None",
 		completedMazeNorth = false,
 		completedMazeSouth = false,
 		completedMazeEast = false,
@@ -63,7 +67,7 @@ test("GetDefaultSession returns the documented defaults", function()
 	end
 end)
 
-test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/settings", function()
+test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/settings/items", function()
 	local before = session({
 		score = 5000,
 		autoClickerCount = 3,
@@ -74,6 +78,9 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 		totalClicks = 777,
 		useBaseSpeed = false,
 		speedSliderPercent = 42,
+		ownedWings = true,
+		ownedFlameTrail = true,
+		equippedCosmetic = "FlameTrail",
 		completedMazeNorth = true,
 		completedMazeWest = true,
 	})
@@ -88,6 +95,11 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 	assertEqual(after.totalClicks, 777, "totalClicks preserved")
 	assertEqual(after.useBaseSpeed, false, "useBaseSpeed preserved")
 	assertEqual(after.speedSliderPercent, 42, "speedSliderPercent preserved")
+	-- Items are owned until rebirth, not wiped by an ordinary Reset -- see
+	-- PerformRebirth below, which does clear them.
+	assertEqual(after.ownedWings, true, "ownedWings preserved")
+	assertEqual(after.ownedFlameTrail, true, "ownedFlameTrail preserved")
+	assertEqual(after.equippedCosmetic, "FlameTrail", "equippedCosmetic preserved")
 	-- A maze completion bonus is a repeatable-per-run payoff (like an
 	-- upgrade), not a permanent unlock (like totalClicks/rebirthCount) --
 	-- see GameConstants.MAZE_GOALS's own comment.
@@ -95,12 +107,15 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 	assertEqual(after.completedMazeWest, false, "completedMazeWest cleared")
 end)
 
-test("PerformRebirth does everything ResetProgress does, plus increments rebirthCount", function()
+test("PerformRebirth does everything ResetProgress does, plus increments rebirthCount and clears owned items", function()
 	local before = session({
 		score = 20000,
 		autoClickerCount = 5,
 		rebirthCount = 1,
 		totalClicks = 100,
+		ownedWings = true,
+		ownedLightTrail = true,
+		equippedCosmetic = "LightTrail",
 		completedMazeEast = true,
 	})
 	local after = GameLogic.PerformRebirth(before)
@@ -109,6 +124,9 @@ test("PerformRebirth does everything ResetProgress does, plus increments rebirth
 	assertEqual(after.autoClickerCount, 0, "autoClickerCount")
 	assertEqual(after.totalClicks, 100, "totalClicks preserved")
 	assertEqual(after.rebirthCount, 2, "rebirthCount incremented")
+	assertEqual(after.ownedWings, false, "ownedWings cleared")
+	assertEqual(after.ownedLightTrail, false, "ownedLightTrail cleared")
+	assertEqual(after.equippedCosmetic, "None", "equippedCosmetic cleared")
 	assertEqual(after.completedMazeEast, false, "completedMazeEast cleared")
 end)
 

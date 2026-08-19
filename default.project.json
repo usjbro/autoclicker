@@ -21,6 +21,15 @@
       "UpdateSpeedSettingsEvent": {
         "$className": "RemoteEvent"
       },
+      "PurchaseItemEvent": {
+        "$className": "RemoteEvent"
+      },
+      "EquipCosmeticEvent": {
+        "$className": "RemoteEvent"
+      },
+      "ActivateFlightEvent": {
+        "$className": "RemoteEvent"
+      },
       "SyncState": {
         "$className": "RemoteEvent"
       },

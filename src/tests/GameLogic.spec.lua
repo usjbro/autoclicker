@@ -14,6 +14,10 @@ return function()
 			totalClicks = 0,
 			useBaseSpeed = true,
 			speedSliderPercent = 100,
+			ownedWings = false,
+			ownedFlameTrail = false,
+			ownedLightTrail = false,
+			equippedCosmetic = "None",
 			completedMazeNorth = false,
 			completedMazeSouth = false,
 			completedMazeEast = false,
@@ -38,7 +42,7 @@ return function()
 	end)
 
 	describe("ResetProgress", function()
-		it("should zero score and upgrades but preserve clicks/rebirths/settings", function()
+		it("should zero score and upgrades but preserve clicks/rebirths/settings/items", function()
 			local before = session({
 				score = 5000,
 				autoClickerCount = 3,
@@ -49,6 +53,9 @@ return function()
 				totalClicks = 777,
 				useBaseSpeed = false,
 				speedSliderPercent = 42,
+				ownedWings = true,
+				ownedFlameTrail = true,
+				equippedCosmetic = "FlameTrail",
 				completedMazeNorth = true,
 				completedMazeWest = true,
 			})
@@ -63,6 +70,11 @@ return function()
 			expect(after.totalClicks).to.equal(777)
 			expect(after.useBaseSpeed).to.equal(false)
 			expect(after.speedSliderPercent).to.equal(42)
+			-- Items are owned until rebirth, not wiped by an ordinary Reset --
+			-- see PerformRebirth below, which does clear them.
+			expect(after.ownedWings).to.equal(true)
+			expect(after.ownedFlameTrail).to.equal(true)
+			expect(after.equippedCosmetic).to.equal("FlameTrail")
 			-- A maze completion bonus is a repeatable-per-run payoff (like an
 			-- upgrade), not a permanent unlock (like totalClicks/rebirthCount) --
 			-- see GameConstants.MAZE_GOALS's own comment.
@@ -72,12 +84,15 @@ return function()
 	end)
 
 	describe("PerformRebirth", function()
-		it("should reset progress and increment rebirthCount", function()
+		it("should reset progress, increment rebirthCount, and clear owned items", function()
 			local before = session({
 				score = 20000,
 				autoClickerCount = 5,
 				rebirthCount = 1,
 				totalClicks = 100,
+				ownedWings = true,
+				ownedLightTrail = true,
+				equippedCosmetic = "LightTrail",
 				completedMazeEast = true,
 			})
 			local after = GameLogic.PerformRebirth(before)
@@ -86,6 +101,9 @@ return function()
 			expect(after.autoClickerCount).to.equal(0)
 			expect(after.totalClicks).to.equal(100)
 			expect(after.rebirthCount).to.equal(2)
+			expect(after.ownedWings).to.equal(false)
+			expect(after.ownedLightTrail).to.equal(false)
+			expect(after.equippedCosmetic).to.equal("None")
 			expect(after.completedMazeEast).to.equal(false)
 		end)
 	end)

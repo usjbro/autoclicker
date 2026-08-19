@@ -26,11 +26,21 @@ do
 	end
 end
 
--- Reverse lookup: DevProductId -> upgrade id, built once from GameConstants.
-local productIdToUpgrade: { [number]: string } = {}
+-- Reverse lookup: DevProductId -> what to grant, built once from
+-- GameConstants. Covers both UPGRADES (stacking counts, granted via +=1)
+-- and ITEMS (one-time-owned flags, granted via =true) -- kept as a single
+-- table (rather than two separate lookups) so ProcessReceipt has one place
+-- to check regardless of which kind of product was bought.
+type GrantKind = "Upgrade" | "Item"
+local productIdToGrant: { [number]: { kind: GrantKind, id: string } } = {}
 for upgradeId, upgrade in pairs(GameConstants.UPGRADES) do
 	if upgrade.DevProductId and upgrade.DevProductId ~= 0 then
-		productIdToUpgrade[upgrade.DevProductId] = upgradeId
+		productIdToGrant[upgrade.DevProductId] = { kind = "Upgrade", id = upgradeId }
+	end
+end
+for itemId, item in pairs(GameConstants.ITEMS) do
+	if item.DevProductId and item.DevProductId ~= 0 then
+		productIdToGrant[item.DevProductId] = { kind = "Item", id = itemId }
 	end
 end
 
@@ -82,11 +92,11 @@ function RobuxPurchaseManager.Start(
 	syncPlayer: (player: Player) -> ()
 )
 	MarketplaceService.ProcessReceipt = function(receiptInfo)
-		local upgradeId = productIdToUpgrade[receiptInfo.ProductId]
-		if not upgradeId then
+		local grant = productIdToGrant[receiptInfo.ProductId]
+		if not grant then
 			-- Unknown product id -- e.g. a real Developer Product was bought but
-			-- its id was never wired into GameConstants.UPGRADES. Nothing to
-			-- grant, but this is a real misconfiguration a developer needs to
+			-- its id was never wired into GameConstants.UPGRADES/ITEMS. Nothing
+			-- to grant, but this is a real misconfiguration a developer needs to
 			-- notice and resolve (potentially refunding the player), not a
 			-- silent no-op.
 			warn("Received a purchase for unrecognized ProductId " .. tostring(receiptInfo.ProductId)
@@ -135,26 +145,50 @@ function RobuxPurchaseManager.Start(
 			-- nothing on success.
 			local ok, err = pcall(function(): ...any
 				-- Grant, then durably save immediately -- real money must not
-				-- depend on the player disconnecting naturally.
-				local field = GameConstants.UPGRADE_FIELDS[upgradeId]
-				if not field then
-					error("no UPGRADE_FIELDS entry for upgrade " .. upgradeId, 0)
-				end
-				session[field] += 1
+				-- depend on the player disconnecting naturally. Upgrades stack
+				-- (+=1, rolled back with -=1 on a failed save); items are
+				-- one-time-owned (=true, rolled back by restoring whatever the
+				-- flag was before -- almost always false, but restoring the
+				-- prior value rather than hardcoding false is correct even in
+				-- the unlikely event this fires for an already-owned item).
+				if grant.kind == "Upgrade" then
+					local field = GameConstants.UPGRADE_FIELDS[grant.id]
+					if not field then
+						error("no UPGRADE_FIELDS entry for upgrade " .. grant.id, 0)
+					end
+					session[field] += 1
 
-				if not DataManager.IsAvailable() then
-					-- No DataStore access at all right now (e.g. Studio without
-					-- API access) -- demanding a successful save would mean
-					-- Robux purchases can never complete. Grant in-memory only,
-					-- same degrade-gracefully behavior the rest of the game
-					-- already has.
-					return
-				end
+					if not DataManager.IsAvailable() then
+						-- No DataStore access at all right now (e.g. Studio
+						-- without API access) -- demanding a successful save
+						-- would mean Robux purchases can never complete. Grant
+						-- in-memory only, same degrade-gracefully behavior the
+						-- rest of the game already has.
+						return
+					end
 
-				local saveOk = DataManager.Save(player, session)
-				if not saveOk then
-					session[field] -= 1
-					error("failed to save purchase", 0)
+					local saveOk = DataManager.Save(player, session)
+					if not saveOk then
+						session[field] -= 1
+						error("failed to save purchase", 0)
+					end
+				else
+					local field = GameConstants.ITEM_FIELDS[grant.id]
+					if not field then
+						error("no ITEM_FIELDS entry for item " .. grant.id, 0)
+					end
+					local previousValue = session[field]
+					session[field] = true
+
+					if not DataManager.IsAvailable() then
+						return
+					end
+
+					local saveOk = DataManager.Save(player, session)
+					if not saveOk then
+						session[field] = previousValue
+						error("failed to save purchase", 0)
+					end
 				end
 			end)
 
