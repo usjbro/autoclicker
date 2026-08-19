@@ -78,8 +78,15 @@ local GLYPH_STROKES: { [string]: { Stroke } } = {
 	M = {
 		{ kind = "line", x1 = 0.05, y1 = 0.0, x2 = 0.05, y2 = 0.45 },
 		{ kind = "arc", cx = 0.2, cy = 0.45, r = 0.15, startDeg = 180, endDeg = 0, segments = 6 },
+		-- Valley stem down to the baseline. The renderer (MapBuilder.lua's
+		-- buildNeonTube) connects every consecutive point regardless of
+		-- stroke boundaries, so getting back up to (0.35, 0.45) for the
+		-- second hump's arc below doesn't need its own explicit stroke --
+		-- a second "line back up" retracing this exact segment was here
+		-- originally and was entirely redundant (an extra wasted tube
+		-- segment for zero visual difference), found and removed by the
+		-- bug-hunt loop.
 		{ kind = "line", x1 = 0.35, y1 = 0.45, x2 = 0.35, y2 = 0.0 },
-		{ kind = "line", x1 = 0.35, y1 = 0.0, x2 = 0.35, y2 = 0.45 },
 		{ kind = "arc", cx = 0.5, cy = 0.45, r = 0.15, startDeg = 180, endDeg = 0, segments = 6 },
 		{ kind = "line", x1 = 0.65, y1 = 0.45, x2 = 0.65, y2 = 0.0 },
 	},
@@ -129,7 +136,10 @@ local function glyphWidth(glyph: { Point2 }): number
 	return maxX
 end
 
-export type WordPathResult = { points: { Point2 }, width: number }
+-- `runs`, not a single flat `points` list: real cursive doesn't lift the
+-- pen within a word, but a space still has to break the tube into a new,
+-- unconnected run -- see WordPath's own comment below for why.
+export type WordPathResult = { runs: { { Point2 } }, width: number }
 
 -- Concatenates each letter's glyph into one continuous path, offsetting
 -- each letter horizontally by the accumulated advance width -- genuine
@@ -137,11 +147,10 @@ export type WordPathResult = { points: { Point2 }, width: number }
 -- letters' point paths are just appended directly (MapBuilder.lua's
 -- renderer connects every consecutive point with a tube segment, letter
 -- boundaries included). A space is extra horizontal advance with no
--- glyph and, correctly, no connecting stroke drawn across the gap --
--- MapBuilder.lua's renderer must start a new unconnected tube run there,
--- not bridge it (see `wordSpace` in WordPath's return, which the renderer
--- uses to split runs).
-function NeonScript.WordPath(word: string, letterSpacing: number): { runs: { { Point2 } }, width: number }
+-- glyph and, correctly, no connecting stroke drawn across the gap -- it
+-- ends the current run and starts a new one, so MapBuilder.lua's renderer
+-- never bridges a tube across a word gap (e.g. "VERY HARD").
+function NeonScript.WordPath(word: string, letterSpacing: number): WordPathResult
 	local runs: { { Point2 } } = {}
 	local currentRun: { Point2 } = {}
 	local advanceX = 0
