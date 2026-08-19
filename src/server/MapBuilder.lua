@@ -542,11 +542,20 @@ end
 -- inside the opaque plate, poking out by only ~0.05 studs on each face --
 -- fully occluded at any real viewing distance, confirmed by a Studio
 -- screenshot showing a bare plate with no letters visible at all.
+-- axis == "X" negates localX (pos.z - localX, not + localX) -- confirmed
+-- needed by a live Studio screenshot showing MazeE/MazeW's signs ("HARD"/
+-- "VERY HARD") rendering as a horizontal mirror image of MazeN/MazeS's
+-- ("EASY"/"MEDIUM", which read left-to-right correctly). Without the
+-- negation, increasing localX (moving rightward through the word) maps to
+-- increasing world Z for every axis == "X" portal, but the player actually
+-- reads the sign's plane in the opposite screen-direction there compared to
+-- an axis == "Z" portal -- a plain sign-flip the axis == "Z" branch happens
+-- not to need.
 local function signWorldPosition(pos: { x: number, z: number, axis: "X" | "Z" }, localX: number, localY: number, depthOffset: number): Vector3
 	if pos.axis == "Z" then
 		return Vector3.new(pos.x + localX, localY, pos.z + depthOffset)
 	else
-		return Vector3.new(pos.x + depthOffset, localY, pos.z + localX)
+		return Vector3.new(pos.x + depthOffset, localY, pos.z - localX)
 	end
 end
 
