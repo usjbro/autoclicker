@@ -21,9 +21,14 @@ export type Session = {
 	useBaseSpeed: boolean,
 	speedSliderPercent: number,
 	ownedWings: boolean,
+	ownedWingsVoidtech: boolean,
+	ownedWingsDragon: boolean,
+	ownedWingsDemonic: boolean,
+	ownedWingsFae: boolean,
 	ownedFlameTrail: boolean,
 	ownedLightTrail: boolean,
 	equippedCosmetic: "None" | "FlameTrail" | "LightTrail",
+	equippedWings: "None" | "Classic" | "Voidtech" | "Dragon" | "Demonic" | "Fae",
 	completedMazeNorth: boolean,
 	completedMazeSouth: boolean,
 	completedMazeEast: boolean,
@@ -44,9 +49,14 @@ function GameLogic.GetDefaultSession(): Session
 		useBaseSpeed = true,
 		speedSliderPercent = 100,
 		ownedWings = false,
+		ownedWingsVoidtech = false,
+		ownedWingsDragon = false,
+		ownedWingsDemonic = false,
+		ownedWingsFae = false,
 		ownedFlameTrail = false,
 		ownedLightTrail = false,
 		equippedCosmetic = "None",
+		equippedWings = "None",
 		completedMazeNorth = false,
 		completedMazeSouth = false,
 		completedMazeEast = false,
@@ -68,9 +78,14 @@ function GameLogic.ResetProgress(session: Session): Session
 	reset.useBaseSpeed = session.useBaseSpeed
 	reset.speedSliderPercent = session.speedSliderPercent
 	reset.ownedWings = session.ownedWings
+	reset.ownedWingsVoidtech = session.ownedWingsVoidtech
+	reset.ownedWingsDragon = session.ownedWingsDragon
+	reset.ownedWingsDemonic = session.ownedWingsDemonic
+	reset.ownedWingsFae = session.ownedWingsFae
 	reset.ownedFlameTrail = session.ownedFlameTrail
 	reset.ownedLightTrail = session.ownedLightTrail
 	reset.equippedCosmetic = session.equippedCosmetic
+	reset.equippedWings = session.equippedWings
 	return reset
 end
 
@@ -81,9 +96,14 @@ function GameLogic.PerformRebirth(session: Session): Session
 	local reset = GameLogic.ResetProgress(session)
 	reset.rebirthCount += 1
 	reset.ownedWings = false
+	reset.ownedWingsVoidtech = false
+	reset.ownedWingsDragon = false
+	reset.ownedWingsDemonic = false
+	reset.ownedWingsFae = false
 	reset.ownedFlameTrail = false
 	reset.ownedLightTrail = false
 	reset.equippedCosmetic = "None"
+	reset.equippedWings = "None"
 	return reset
 end
 
