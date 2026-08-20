@@ -20,6 +20,7 @@ local RebirthEvent = ReplicatedStorage:WaitForChild("RebirthEvent")
 local UpdateSpeedSettingsEvent = ReplicatedStorage:WaitForChild("UpdateSpeedSettingsEvent")
 local PurchaseItemEvent = ReplicatedStorage:WaitForChild("PurchaseItemEvent")
 local EquipCosmeticEvent = ReplicatedStorage:WaitForChild("EquipCosmeticEvent")
+local EquipWingsEvent = ReplicatedStorage:WaitForChild("EquipWingsEvent")
 local ActivateFlightEvent = ReplicatedStorage:WaitForChild("ActivateFlightEvent")
 local SyncState = ReplicatedStorage:WaitForChild("SyncState")
 local LeaderboardUpdate = ReplicatedStorage:WaitForChild("LeaderboardUpdate")
@@ -433,13 +434,18 @@ end
 -- Updated every SyncState tick below; read here by the Equip buttons' click
 -- handlers (declared before those closures so they capture this local, not
 -- a global) and by the flight-input binding further down.
-local lastKnownEquipped: "None" | "FlameTrail" | "LightTrail" = "None"
+local lastKnownEquippedTrail: "None" | "FlameTrail" | "LightTrail" = "None"
+local lastKnownEquippedWings: "None" | "Classic" | "Voidtech" | "Dragon" | "Demonic" | "Fae" = "None"
 local ownedWings = false
 
 local ITEM_DISPLAY = {
-	{ Id = "Wings", Name = "Wings", Description = "Grants a short flight burst -- press Space while airborne.", Cosmetic = false },
-	{ Id = "FlameTrail", Name = "Flame Trail", Description = "A fiery trail behind you as you move.", Cosmetic = true },
-	{ Id = "LightTrail", Name = "Light Trail", Description = "A glowing light trail behind you as you move.", Cosmetic = true },
+	{ Id = "Wings", Name = "Wings -- Classic Feathered", Description = "Grants a short flight burst -- press Space while airborne.", EquipGroup = "Wings", EquipId = "Classic" },
+	{ Id = "WingsVoidtech", Name = "Wings -- Voidtech", Description = "Glowing mechanical wings. Grants flight.", EquipGroup = "Wings", EquipId = "Voidtech" },
+	{ Id = "WingsDragon", Name = "Wings -- Dragon", Description = "Dark reptilian membrane wings. Grants flight.", EquipGroup = "Wings", EquipId = "Dragon" },
+	{ Id = "WingsDemonic", Name = "Wings -- Demonic", Description = "Bone wings wreathed in embers. Grants flight.", EquipGroup = "Wings", EquipId = "Demonic" },
+	{ Id = "WingsFae", Name = "Wings -- Fae", Description = "Small, delicate, glowing wings. Grants flight.", EquipGroup = "Wings", EquipId = "Fae" },
+	{ Id = "FlameTrail", Name = "Flame Trail", Description = "A fiery trail behind you as you move.", EquipGroup = "Trail", EquipId = "FlameTrail" },
+	{ Id = "LightTrail", Name = "Light Trail", Description = "A glowing light trail behind you as you move.", EquipGroup = "Trail", EquipId = "LightTrail" },
 }
 
 local itemRows = {}
@@ -494,18 +500,26 @@ for i, item in ipairs(ITEM_DISPLAY) do
 	end
 
 	local equipButton = nil
-	if item.Cosmetic then
+	if item.EquipGroup then
 		equipButton = makeButton(buttonsRow, "Equip", UDim2.new(0, UPGRADE_BUTTON_WIDTH, 0, 36), COLOR_PANEL)
 		equipButton.MouseButton1Click:Connect(function()
-			-- Toggle: equipping the already-equipped cosmetic unequips it
-			-- (back to "None") instead of being a no-op -- lastKnownEquipped
-			-- is updated every SyncState tick, see below.
-			EquipCosmeticEvent:FireServer(if lastKnownEquipped == item.Id then "None" else item.Id)
+			-- Toggle: equipping the already-equipped style/trail unequips it
+			-- (back to "None") instead of being a no-op -- lastKnownEquipped*
+			-- is updated every SyncState tick, see below. Each group fires
+			-- its own RemoteEvent -- a trail and wings are independent equip
+			-- slots, equipping one never affects the other.
+			if item.EquipGroup == "Wings" then
+				EquipWingsEvent:FireServer(if lastKnownEquippedWings == item.EquipId then "None" else item.EquipId)
+			else
+				EquipCosmeticEvent:FireServer(if lastKnownEquippedTrail == item.EquipId then "None" else item.EquipId)
+			end
 		end)
 	end
 
 	table.insert(itemRows, {
 		Id = item.Id,
+		EquipGroup = item.EquipGroup,
+		EquipId = item.EquipId,
 		Field = GameConstants.ITEM_FIELDS[item.Id],
 		Cost = itemConstants.Cost,
 		PtsButton = ptsButton,
@@ -942,8 +956,9 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 		end
 	end
 
-	lastKnownEquipped = state.equippedCosmetic
-	ownedWings = state.ownedWings
+	lastKnownEquippedTrail = state.equippedCosmetic
+	lastKnownEquippedWings = state.equippedWings
+	ownedWings = state.ownedWings or state.ownedWingsVoidtech or state.ownedWingsDragon or state.ownedWingsDemonic or state.ownedWingsFae
 
 	for _, row in ipairs(itemRows) do
 		local owned = state[row.Field]
@@ -964,7 +979,9 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 		end
 
 		if row.EquipButton then
-			local isEquipped = lastKnownEquipped == row.Id
+			local isEquipped = if row.EquipGroup == "Wings"
+				then lastKnownEquippedWings == row.EquipId
+				else lastKnownEquippedTrail == row.EquipId
 			row.EquipButton.Active = owned
 			row.EquipButton.AutoButtonColor = owned
 			if isEquipped then
