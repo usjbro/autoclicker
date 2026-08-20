@@ -542,20 +542,37 @@ end
 -- inside the opaque plate, poking out by only ~0.05 studs on each face --
 -- fully occluded at any real viewing distance, confirmed by a Studio
 -- screenshot showing a bare plate with no letters visible at all.
--- axis == "X" negates localX (pos.z - localX, not + localX) -- confirmed
--- needed by a live Studio screenshot showing MazeE/MazeW's signs ("HARD"/
--- "VERY HARD") rendering as a horizontal mirror image of MazeN/MazeS's
--- ("EASY"/"MEDIUM", which read left-to-right correctly). Without the
--- negation, increasing localX (moving rightward through the word) maps to
--- increasing world Z for every axis == "X" portal, but the player actually
--- reads the sign's plane in the opposite screen-direction there compared to
--- an axis == "Z" portal -- a plain sign-flip the axis == "Z" branch happens
--- not to need.
+-- 1 for a positive coordinate, -1 for a negative (or zero) one -- the one
+-- piece every per-wing sign-orientation decision below is built from.
+local function axisSign(value: number): number
+	return if value >= 0 then 1 else -1
+end
+
+-- localX (rightward through the word) needs a *per-wing*, not just
+-- per-axis, sign: a first version applied one hardcoded sign for every
+-- axis == "X" portal, which happened to be correct for MazeW (x = -50) but
+-- rendered MazeE's sign ("HARD") as a horizontal mirror image of itself --
+-- confirmed by a live Studio screenshot showing "HARD" alone mirrored while
+-- "VERY HARD" (MazeW, same axis) read correctly, exactly the same class of
+-- per-wing-not-per-axis mistake towardSpawnOffset below already had to
+-- account for on the depth axis. Empirically derived per axis (not assumed
+-- symmetric between them -- X and Z relate to "which way is world-left"
+-- differently, since the player's approach direction is along the *other*
+-- axis in each case): axis == "X" needs +axisSign(pos.x), axis == "Z" needs
+-- -axisSign(pos.z).
+local function mirrorSign(pos: { x: number, z: number, axis: "X" | "Z" }): number
+	if pos.axis == "X" then
+		return axisSign(pos.x)
+	else
+		return -axisSign(pos.z)
+	end
+end
+
 local function signWorldPosition(pos: { x: number, z: number, axis: "X" | "Z" }, localX: number, localY: number, depthOffset: number): Vector3
 	if pos.axis == "Z" then
-		return Vector3.new(pos.x + localX, localY, pos.z + depthOffset)
+		return Vector3.new(pos.x + mirrorSign(pos) * localX, localY, pos.z + depthOffset)
 	else
-		return Vector3.new(pos.x + depthOffset, localY, pos.z - localX)
+		return Vector3.new(pos.x + depthOffset, localY, pos.z + mirrorSign(pos) * localX)
 	end
 end
 
@@ -569,7 +586,7 @@ end
 -- opposite offsets, since spawn at z = 0 is on the opposite side of each).
 local function towardSpawnOffset(pos: { x: number, z: number, axis: "X" | "Z" }, distance: number): number
 	local axisValue = if pos.axis == "Z" then pos.z else pos.x
-	return if axisValue >= 0 then -distance else distance
+	return -axisSign(axisValue) * distance
 end
 
 local PORTAL_SIZE = 10

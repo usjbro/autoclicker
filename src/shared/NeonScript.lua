@@ -77,13 +77,22 @@ local GLYPH_STROKES: { [string]: { Stroke } } = {
 		{ kind = "line", x1 = 0.44, y1 = 0.0, x2 = 0.365, y2 = 0.22 }, -- retrace partway up the right leg (invisible overlap) to reach crossbar height
 		{ kind = "line", x1 = 0.365, y1 = 0.22, x2 = 0.075, y2 = 0.22 }, -- crossbar
 	},
+	-- The top and bottom bars each attach at one of the spine's own
+	-- endpoints (not partway through it), so they need no retrace at all --
+	-- only the middle bar branches off midway, needing exactly one. Ordered
+	-- so the spine is drawn seamlessly down to the middle bar's height
+	-- first, then a single retrace back to the spine to continue down to
+	-- the bottom bar -- an earlier version retraced twice (the whole bottom
+	-- bar, then part of the spine) by reaching the middle bar's height
+	-- AFTER the bottom bar instead of before it; a code-review pass on the
+	-- A/E/H rewrite caught the redundant instance count this produced.
 	E = {
 		{ kind = "line", x1 = 0.35, y1 = 0.65, x2 = 0.0, y2 = 0.65 }, -- top bar
-		{ kind = "line", x1 = 0.0, y1 = 0.65, x2 = 0.0, y2 = 0.0 }, -- spine
-		{ kind = "line", x1 = 0.0, y1 = 0.0, x2 = 0.35, y2 = 0.0 }, -- bottom bar
-		{ kind = "line", x1 = 0.35, y1 = 0.0, x2 = 0.0, y2 = 0.0 }, -- retrace bottom bar back (invisible overlap)
-		{ kind = "line", x1 = 0.0, y1 = 0.0, x2 = 0.0, y2 = 0.32 }, -- retrace partway up the spine (invisible overlap) to middle height
+		{ kind = "line", x1 = 0.0, y1 = 0.65, x2 = 0.0, y2 = 0.32 }, -- spine, down to middle-bar height
 		{ kind = "line", x1 = 0.0, y1 = 0.32, x2 = 0.3, y2 = 0.32 }, -- middle bar
+		{ kind = "line", x1 = 0.3, y1 = 0.32, x2 = 0.0, y2 = 0.32 }, -- retrace middle bar back (invisible overlap) to rejoin the spine
+		{ kind = "line", x1 = 0.0, y1 = 0.32, x2 = 0.0, y2 = 0.0 }, -- spine, continuing down
+		{ kind = "line", x1 = 0.0, y1 = 0.0, x2 = 0.35, y2 = 0.0 }, -- bottom bar (no retrace needed -- natural continuation)
 	},
 	S = {
 		{ kind = "arc", cx = 0.25, cy = 0.48, r = 0.18, startDeg = -30, endDeg = 200, segments = 7 },
@@ -141,6 +150,18 @@ local GLYPH_STROKES: { [string]: { Stroke } } = {
 	-- flat crossbar, H's). Rebuilt with a straight horizontal crossbar at
 	-- the stems' actual midpoint, using the same retrace-not-jump technique
 	-- as A/E above.
+	-- Unlike E (one branch point -- the middle bar -- needing exactly one
+	-- retrace), H's crossbar creates TWO branch points, one per stem, which
+	-- is the graph-theoretic minimum number of retraces a single
+	-- continuous point path needs to cover both full stems plus a
+	-- mid-height crossbar without ever drawing a stray diagonal jump (which
+	-- risks reintroducing the exact "reads as N" ambiguity this glyph was
+	-- rewritten to fix -- see the comment above). Both retraces below are
+	-- structurally required, unlike the M glyph's old bug (a complete,
+	-- purposeless duplicate of an already-finished stroke) -- a code-review
+	-- pass flagged this glyph's Instance count as worth a second look, and
+	-- confirmed reordering it can't reduce the count below two without
+	-- accepting a new visible diagonal.
 	H = {
 		{ kind = "line", x1 = 0.1, y1 = 0.0, x2 = 0.1, y2 = 0.65 },
 		{ kind = "line", x1 = 0.1, y1 = 0.65, x2 = 0.1, y2 = 0.325 }, -- retrace down to crossbar height (invisible overlap)
