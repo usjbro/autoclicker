@@ -11,6 +11,7 @@ local LeaderboardManager = require(script.Parent:WaitForChild("LeaderboardManage
 local RobuxPurchaseManager = require(script.Parent:WaitForChild("RobuxPurchaseManager"))
 local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
 local CosmeticsSystem = require(script.Parent:WaitForChild("CosmeticsSystem"))
+local WingsVisualSystem = require(script.Parent:WaitForChild("WingsVisualSystem"))
 local FlightSystem = require(script.Parent:WaitForChild("FlightSystem"))
 local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
@@ -22,6 +23,7 @@ local RebirthEvent = ReplicatedStorage:WaitForChild("RebirthEvent")
 local UpdateSpeedSettingsEvent = ReplicatedStorage:WaitForChild("UpdateSpeedSettingsEvent")
 local PurchaseItemEvent = ReplicatedStorage:WaitForChild("PurchaseItemEvent")
 local EquipCosmeticEvent = ReplicatedStorage:WaitForChild("EquipCosmeticEvent")
+local EquipWingsEvent = ReplicatedStorage:WaitForChild("EquipWingsEvent")
 local ActivateFlightEvent = ReplicatedStorage:WaitForChild("ActivateFlightEvent")
 local SyncState = ReplicatedStorage:WaitForChild("SyncState")
 
@@ -443,6 +445,38 @@ EquipCosmeticEvent.OnServerEvent:Connect(function(player, cosmeticId)
 	end)
 end)
 
+-- [SERVER] Handle switching which Wings style (if any) is equipped.
+-- Explicit per-value branches (not a generic loop indexing Session by a
+-- dynamic field name), same reasoning as EquipCosmeticEvent above --
+-- Session is a fixed-field record type under --!strict. Each branch checks
+-- ownership of that specific style before allowing the switch.
+EquipWingsEvent.OnServerEvent:Connect(function(player, wingsId)
+	SessionStore.With(player.UserId, function(session)
+		-- Already equipped -- also this handler's debounce, same idiom as
+		-- EquipCosmeticEvent's own "already equipped" guard.
+		if wingsId == session.equippedWings then return end
+
+		if wingsId == "None" then
+			session.equippedWings = "None"
+		elseif wingsId == "Classic" and session.ownedWings then
+			session.equippedWings = "Classic"
+		elseif wingsId == "Voidtech" and session.ownedWingsVoidtech then
+			session.equippedWings = "Voidtech"
+		elseif wingsId == "Dragon" and session.ownedWingsDragon then
+			session.equippedWings = "Dragon"
+		elseif wingsId == "Demonic" and session.ownedWingsDemonic then
+			session.equippedWings = "Demonic"
+		elseif wingsId == "Fae" and session.ownedWingsFae then
+			session.equippedWings = "Fae"
+		else
+			return
+		end
+
+		WingsVisualSystem.ApplyEquippedWings(player, session)
+		syncPlayer(player)
+	end)
+end)
+
 -- [SERVER] Handle a flight-burst request. No arguments -- the client only
 -- ever asks to fly; FlightSystem.TryActivate is solely responsible for
 -- whether that's allowed (Wings ownership, cooldown) and what the burst
@@ -541,5 +575,8 @@ MovementSystem.Start(SessionStore)
 
 -- Start Cosmetics System (re-applies the equipped trail on every character (re)spawn)
 CosmeticsSystem.Start(SessionStore)
+
+-- Start Wings Visual System (re-applies the equipped wings on every character (re)spawn)
+WingsVisualSystem.Start(SessionStore)
 
 print("Autoclicker Server Initialized")
