@@ -3,8 +3,18 @@ return function()
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local GameLogic = require(ReplicatedStorage.Shared.GameLogic)
 
-	local function session(overrides: { [string]: any }?)
-		local base = {
+	local function session(overrides: { [string]: any }?): GameLogic.Session
+		-- Explicitly typed as GameLogic.Session (not inferred) so the dynamic
+		-- overrides merge below doesn't widen equippedCosmetic's narrow
+		-- "None" | "FlameTrail" | "LightTrail" union to a plain string --
+		-- overrides' own values are `any` (keys are runtime strings, not
+		-- literals, so they can't be typed narrower), and assigning an `any`
+		-- into an inferred-typed table widens the whole table's type unless
+		-- the target is already pinned. The `(base :: any)` cast on the
+		-- assignment itself (not on `base`'s own declaration) is the same
+		-- pattern GameHandlers.lua's applyInPlace already uses for the same
+		-- reason: a dynamic-key write into a fixed-field record type.
+		local base: GameLogic.Session = {
 			score = 0,
 			autoClickerCount = 0,
 			megaClickerCount = 0,
@@ -24,7 +34,7 @@ return function()
 			completedMazeWest = false,
 		}
 		for key, value in pairs(overrides or {}) do
-			base[key] = value
+			(base :: any)[key] = value
 		end
 		return base
 	end
