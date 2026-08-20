@@ -27,6 +27,9 @@
       "EquipCosmeticEvent": {
         "$className": "RemoteEvent"
       },
+      "EquipWingsEvent": {
+        "$className": "RemoteEvent"
+      },
       "ActivateFlightEvent": {
         "$className": "RemoteEvent"
       },
