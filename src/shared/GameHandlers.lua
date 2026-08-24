@@ -96,6 +96,11 @@ export type RebirthDeps = {
 	-- currently-spawned character -- this reapplies it immediately rather
 	-- than leaving a stale visible trail until their next respawn.
 	applyCosmetic: (session: Session) -> (),
+	-- Same reasoning as applyCosmetic above, for equippedWings/ownedWings* --
+	-- PerformRebirth also clears those, and without this a rebirthing
+	-- player would keep visibly wearing wings they no longer own until
+	-- their next respawn.
+	applyWings: (session: Session) -> (),
 	saveScore: (session: Session, force: boolean) -> (),
 	sync: (session: Session) -> (),
 	saveSession: (session: Session) -> (),
@@ -113,6 +118,7 @@ function GameHandlers.HandleRebirth(session: Session, deps: RebirthDeps): boolea
 
 	applyInPlace(session, GameLogic.PerformRebirth(session))
 	deps.applyCosmetic(session)
+	deps.applyWings(session)
 	deps.saveScore(session, true)
 	deps.sync(session)
 	deps.saveSession(session)
