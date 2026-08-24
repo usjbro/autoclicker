@@ -381,7 +381,21 @@ end
 -- all), so reapply on every character (re)creation -- same pattern
 -- CosmeticsSystem.Start/MovementSystem.Start already use.
 function WingsVisualSystem.Start(sessionStore: SessionStoreModule)
-	buildTemplates()
+	-- pcall-wrapped so a failure building templates (e.g. a future edit to
+	-- one of the buildXSide functions) can't take down the rest of
+	-- GameService.server.lua's initialization -- same reasoning
+	-- MapBuilder.Build() is pcall-wrapped for (see its own comment): an
+	-- unprotected throw here would propagate out of this call and abort
+	-- whatever runs after it in GameService.server.lua (HazardTrailSystem.
+	-- Start included), not just leave wings broken. wingsTemplates simply
+	-- stays empty on failure, so ApplyEquippedWings degrades to a no-op
+	-- (clearWings) rather than crashing anything downstream.
+	local ok, err = pcall(function()
+		buildTemplates()
+	end)
+	if not ok then
+		warn("WingsVisualSystem: failed to build wing templates: " .. tostring(err))
+	end
 
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function()
