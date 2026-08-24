@@ -1,5 +1,6 @@
 --!strict
-local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameLogic = require(Shared:WaitForChild("GameLogic"))
 local Players = game:GetService("Players")
 local SessionStoreType = require(script.Parent:WaitForChild("SessionStore"))
@@ -14,6 +15,21 @@ local WingsVisualSystem = {}
 -- Torso on R6), which is the standard, robust way to attach a back-worn
 -- item and avoids hand-rolling that alignment via manual CFrame math on a
 -- moving, respawning character.
+--
+-- One Accessory *template* per style is built once, at server startup,
+-- and parented under ReplicatedStorage.WingsTemplates (see buildTemplates
+-- below) -- ApplyEquippedWings never constructs geometry itself, it just
+-- Clone()s the matching template and calls Humanoid:AddAccessory. This
+-- keeps equip/respawn cheap (one Clone vs. dozens of Instance.new +
+-- WeldConstraint calls) and gives every wing style a single, inspectable
+-- source of truth in ReplicatedStorage rather than rebuilding it from
+-- scratch every time.
+local WINGS_TEMPLATES_FOLDER_NAME = "WingsTemplates"
+
+-- Name given to the LIVE clone attached to a character -- deliberately
+-- distinct from the per-style template names in WINGS_TEMPLATES_FOLDER_NAME
+-- (e.g. "Voidtech") so clearWings can find-and-destroy the equipped
+-- instance on a character without colliding with the template names.
 local WINGS_ACCESSORY_NAME = "CosmeticWings"
 
 -- Every avatar (R15 or R6) has a BodyBackAttachment on its torso-equivalent
@@ -38,7 +54,10 @@ end
 -- unparented from the character; the WeldConstraint's locked-in relative
 -- offset stays correct once Humanoid:AddAccessory later repositions Handle
 -- onto the character's back, since a WeldConstraint holds a *relative*
--- transform regardless of how either part is subsequently moved.
+-- transform regardless of how either part is subsequently moved -- and
+-- Instance:Clone() correctly remaps a WeldConstraint's Part0/Part1 to the
+-- cloned instances as long as both are descendants of what's being cloned,
+-- which they are here (both under the same Accessory).
 local function weldPart(part: BasePart, handle: BasePart, accessory: Accessory)
 	part.Anchored = false
 	part.CanCollide = false
@@ -246,10 +265,10 @@ end
 -- to match the target on the character's torso (see findBackAttachment) --
 -- Roblox's AddAccessory matches Handle's attachment to a body attachment
 -- by name, then rigidly repositions Handle (and everything welded to it)
--- so the two coincide.
+-- so the two coincide. Called once per style by buildTemplates below, not
+-- per equip -- ApplyEquippedWings clones the resulting template instead.
 local function buildWingsAccessory(buildSide: (BasePart, Accessory, number) -> ()): Accessory
 	local accessory = Instance.new("Accessory")
-	accessory.Name = WINGS_ACCESSORY_NAME
 	accessory.AccessoryType = Enum.AccessoryType.Back
 
 	local handle = Instance.new("Part")
@@ -270,13 +289,38 @@ local function buildWingsAccessory(buildSide: (BasePart, Accessory, number) -> (
 	-- Load-bearing: every buildXSide function computes `handle.CFrame *
 	-- localCFrame`, which only equals `localCFrame` (the intended
 	-- Handle-relative offset) because handle.CFrame is identity here.
-	-- Humanoid:AddAccessory (called by the caller) is what later moves
-	-- Handle onto the character's actual back -- doing that before this
-	-- point would shift every part's placement.
+	-- Humanoid:AddAccessory (called on a *clone* of this template, from
+	-- ApplyEquippedWings) is what later moves Handle onto the character's
+	-- actual back -- doing that before this point would shift every part's
+	-- placement.
 	buildSide(handle, accessory, -1)
 	buildSide(handle, accessory, 1)
 
 	return accessory
+end
+
+-- Per-style templates, keyed the same way as SIDE_BUILDERS -- built once
+-- by buildTemplates (called from Start below) and cloned by
+-- ApplyEquippedWings on every equip/respawn, rather than reconstructing
+-- dozens of parts from scratch each time.
+local wingsTemplates: { [string]: Accessory } = {}
+
+-- Builds one Accessory template per style and parents them under
+-- ReplicatedStorage.WingsTemplates -- a single, inspectable source of
+-- truth for every wing style's geometry, visible in Studio's Explorer
+-- like any other asset, rather than geometry that only exists transiently
+-- on whichever characters currently have it equipped.
+local function buildTemplates()
+	local folder = Instance.new("Folder")
+	folder.Name = WINGS_TEMPLATES_FOLDER_NAME
+	folder.Parent = ReplicatedStorage
+
+	for styleName, buildSide in pairs(SIDE_BUILDERS) do
+		local template = buildWingsAccessory(buildSide)
+		template.Name = styleName
+		template.Parent = folder
+		wingsTemplates[styleName] = template
+	end
 end
 
 -- Applies session.equippedWings to a player's current character, if any.
@@ -292,8 +336,8 @@ function WingsVisualSystem.ApplyEquippedWings(player: Player, session: GameLogic
 	local character = player.Character
 	if not character then return end
 
-	local buildSide = SIDE_BUILDERS[session.equippedWings]
-	if buildSide then
+	local template = wingsTemplates[session.equippedWings]
+	if template then
 		-- Checked BEFORE clearWings below -- a character whose Humanoid or
 		-- BodyBackAttachment isn't ready yet (e.g. CharacterAdded firing
 		-- before body parts finish replicating, or a non-standard rig)
@@ -312,22 +356,23 @@ function WingsVisualSystem.ApplyEquippedWings(player: Player, session: GameLogic
 		end
 
 		clearWings(character)
-		local accessory = buildWingsAccessory(buildSide)
+		local clone = template:Clone()
+		clone.Name = WINGS_ACCESSORY_NAME
 		local ok, err = pcall(function()
-			humanoid:AddAccessory(accessory)
+			humanoid:AddAccessory(clone)
 		end)
 		if not ok then
 			-- AddAccessory is an engine API call (unlike the plain
-			-- Instance.new/WeldConstraint calls the old implementation
+			-- Instance.new/WeldConstraint calls building the template
 			-- used, neither of which could throw) -- this can be called
 			-- from inside GameHandlers.HandleRebirth's orchestration
 			-- (before saveScore/sync/saveSession run), so an uncaught
 			-- error here would abort the rest of that rebirth, not just
 			-- the wings render.
 			warn(("WingsVisualSystem: AddAccessory failed for %s -- %s"):format(player.Name, tostring(err)))
-			accessory:Destroy()
+			clone:Destroy()
 		end
-	else -- "None"
+	else -- "None", or (defensively) an unrecognized style
 		clearWings(character)
 	end
 end
@@ -336,6 +381,22 @@ end
 -- all), so reapply on every character (re)creation -- same pattern
 -- CosmeticsSystem.Start/MovementSystem.Start already use.
 function WingsVisualSystem.Start(sessionStore: SessionStoreModule)
+	-- pcall-wrapped so a failure building templates (e.g. a future edit to
+	-- one of the buildXSide functions) can't take down the rest of
+	-- GameService.server.lua's initialization -- same reasoning
+	-- MapBuilder.Build() is pcall-wrapped for (see its own comment): an
+	-- unprotected throw here would propagate out of this call and abort
+	-- whatever runs after it in GameService.server.lua (HazardTrailSystem.
+	-- Start included), not just leave wings broken. wingsTemplates simply
+	-- stays empty on failure, so ApplyEquippedWings degrades to a no-op
+	-- (clearWings) rather than crashing anything downstream.
+	local ok, err = pcall(function()
+		buildTemplates()
+	end)
+	if not ok then
+		warn("WingsVisualSystem: failed to build wing templates: " .. tostring(err))
+	end
+
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function()
 			local session = sessionStore.Peek(player.UserId)
