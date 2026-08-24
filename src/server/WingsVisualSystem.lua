@@ -173,13 +173,19 @@ local function buildDemonicSide(handle: BasePart, accessory: Accessory, side: nu
 		spine.CFrame = handle.CFrame * localCFrame
 		weldPart(spine, handle, accessory)
 
+		-- +length/2, not -length/2 -- spine's local Z axis (after its X-axis
+		-- pitch above, a modest -15..-35 degree tilt) still points mostly
+		-- toward Handle's own +Z, i.e. outward/backward (see this file's
+		-- own +Z convention comment). Since the spine's CFrame origin sits
+		-- at its geometric center, +length/2 reaches the outward tip;
+		-- -length/2 would land back toward the body.
 		local glow = Instance.new("Part")
 		glow.Name = "BoneSpineGlow" .. i
 		glow.Shape = Enum.PartType.Ball
 		glow.Size = Vector3.new(0.15, 0.15, 0.15)
 		glow.Color = Color3.fromHex("ff2222")
 		glow.Material = Enum.Material.Neon
-		glow.CFrame = spine.CFrame * CFrame.new(0, 0, -length / 2)
+		glow.CFrame = spine.CFrame * CFrame.new(0, 0, length / 2)
 		weldPart(glow, handle, accessory)
 
 		local embers = Instance.new("Fire")
@@ -261,6 +267,12 @@ local function buildWingsAccessory(buildSide: (BasePart, Accessory, number) -> (
 	attachment.Name = "BodyBackAttachment"
 	attachment.Parent = handle
 
+	-- Load-bearing: every buildXSide function computes `handle.CFrame *
+	-- localCFrame`, which only equals `localCFrame` (the intended
+	-- Handle-relative offset) because handle.CFrame is identity here.
+	-- Humanoid:AddAccessory (called by the caller) is what later moves
+	-- Handle onto the character's actual back -- doing that before this
+	-- point would shift every part's placement.
 	buildSide(handle, accessory, -1)
 	buildSide(handle, accessory, 1)
 
@@ -280,17 +292,44 @@ function WingsVisualSystem.ApplyEquippedWings(player: Player, session: GameLogic
 	local character = player.Character
 	if not character then return end
 
-	clearWings(character)
-
 	local buildSide = SIDE_BUILDERS[session.equippedWings]
-	if not buildSide then return end -- "None"
+	if buildSide then
+		-- Checked BEFORE clearWings below -- a character whose Humanoid or
+		-- BodyBackAttachment isn't ready yet (e.g. CharacterAdded firing
+		-- before body parts finish replicating, or a non-standard rig)
+		-- must not have its existing wings torn off with nothing to
+		-- replace them; better to leave the stale-but-visible wings in
+		-- place than to leave the player wearing nothing.
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		local backAttachment = findBackAttachment(character)
+		if not humanoid or not backAttachment then
+			warn(("WingsVisualSystem: couldn't apply %s wings for %s -- missing %s"):format(
+				session.equippedWings,
+				player.Name,
+				if not humanoid then "Humanoid" else "BodyBackAttachment"
+			))
+			return
+		end
 
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then return end
-	if not findBackAttachment(character) then return end -- no matching attachment on this avatar's rig
-
-	local accessory = buildWingsAccessory(buildSide)
-	humanoid:AddAccessory(accessory)
+		clearWings(character)
+		local accessory = buildWingsAccessory(buildSide)
+		local ok, err = pcall(function()
+			humanoid:AddAccessory(accessory)
+		end)
+		if not ok then
+			-- AddAccessory is an engine API call (unlike the plain
+			-- Instance.new/WeldConstraint calls the old implementation
+			-- used, neither of which could throw) -- this can be called
+			-- from inside GameHandlers.HandleRebirth's orchestration
+			-- (before saveScore/sync/saveSession run), so an uncaught
+			-- error here would abort the rest of that rebirth, not just
+			-- the wings render.
+			warn(("WingsVisualSystem: AddAccessory failed for %s -- %s"):format(player.Name, tostring(err)))
+			accessory:Destroy()
+		end
+	else -- "None"
+		clearWings(character)
+	end
 end
 
 -- Wings don't survive a respawn (a fresh character has no accessory at
