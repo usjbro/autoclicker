@@ -25,9 +25,14 @@ return function()
 			useBaseSpeed = true,
 			speedSliderPercent = 100,
 			ownedWings = false,
+			ownedWingsVoidtech = false,
+			ownedWingsDragon = false,
+			ownedWingsDemonic = false,
+			ownedWingsFae = false,
 			ownedFlameTrail = false,
 			ownedLightTrail = false,
 			equippedCosmetic = "None",
+			equippedWings = "None",
 			completedMazeNorth = false,
 			completedMazeSouth = false,
 			completedMazeEast = false,
@@ -64,8 +69,11 @@ return function()
 				useBaseSpeed = false,
 				speedSliderPercent = 42,
 				ownedWings = true,
+				ownedWingsVoidtech = true,
+				ownedWingsDragon = true,
 				ownedFlameTrail = true,
 				equippedCosmetic = "FlameTrail",
+				equippedWings = "Dragon",
 				completedMazeNorth = true,
 				completedMazeWest = true,
 			})
@@ -83,8 +91,11 @@ return function()
 			-- Items are owned until rebirth, not wiped by an ordinary Reset --
 			-- see PerformRebirth below, which does clear them.
 			expect(after.ownedWings).to.equal(true)
+			expect(after.ownedWingsVoidtech).to.equal(true)
+			expect(after.ownedWingsDragon).to.equal(true)
 			expect(after.ownedFlameTrail).to.equal(true)
 			expect(after.equippedCosmetic).to.equal("FlameTrail")
+			expect(after.equippedWings).to.equal("Dragon")
 			-- A maze completion bonus is a repeatable-per-run payoff (like an
 			-- upgrade), not a permanent unlock (like totalClicks/rebirthCount) --
 			-- see GameConstants.MAZE_GOALS's own comment.
@@ -101,8 +112,11 @@ return function()
 				rebirthCount = 1,
 				totalClicks = 100,
 				ownedWings = true,
+				ownedWingsDemonic = true,
+				ownedWingsFae = true,
 				ownedLightTrail = true,
 				equippedCosmetic = "LightTrail",
+				equippedWings = "Fae",
 				completedMazeEast = true,
 			})
 			local after = GameLogic.PerformRebirth(before)
@@ -112,8 +126,11 @@ return function()
 			expect(after.totalClicks).to.equal(100)
 			expect(after.rebirthCount).to.equal(2)
 			expect(after.ownedWings).to.equal(false)
+			expect(after.ownedWingsDemonic).to.equal(false)
+			expect(after.ownedWingsFae).to.equal(false)
 			expect(after.ownedLightTrail).to.equal(false)
 			expect(after.equippedCosmetic).to.equal("None")
+			expect(after.equippedWings).to.equal("None")
 			expect(after.completedMazeEast).to.equal(false)
 		end)
 	end)

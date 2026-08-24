@@ -44,9 +44,14 @@ local function session(overrides: { [string]: any }?)
 		useBaseSpeed = true,
 		speedSliderPercent = 100,
 		ownedWings = false,
+		ownedWingsVoidtech = false,
+		ownedWingsDragon = false,
+		ownedWingsDemonic = false,
+		ownedWingsFae = false,
 		ownedFlameTrail = false,
 		ownedLightTrail = false,
 		equippedCosmetic = "None",
+		equippedWings = "None",
 		completedMazeNorth = false,
 		completedMazeSouth = false,
 		completedMazeEast = false,
@@ -79,6 +84,9 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 		useBaseSpeed = false,
 		speedSliderPercent = 42,
 		ownedWings = true,
+		ownedWingsVoidtech = true,
+		ownedWingsDragon = true,
+		equippedWings = "Dragon",
 		ownedFlameTrail = true,
 		equippedCosmetic = "FlameTrail",
 		completedMazeNorth = true,
@@ -98,6 +106,9 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 	-- Items are owned until rebirth, not wiped by an ordinary Reset -- see
 	-- PerformRebirth below, which does clear them.
 	assertEqual(after.ownedWings, true, "ownedWings preserved")
+	assertEqual(after.ownedWingsVoidtech, true, "ownedWingsVoidtech preserved")
+	assertEqual(after.ownedWingsDragon, true, "ownedWingsDragon preserved")
+	assertEqual(after.equippedWings, "Dragon", "equippedWings preserved")
 	assertEqual(after.ownedFlameTrail, true, "ownedFlameTrail preserved")
 	assertEqual(after.equippedCosmetic, "FlameTrail", "equippedCosmetic preserved")
 	-- A maze completion bonus is a repeatable-per-run payoff (like an
@@ -114,6 +125,9 @@ test("PerformRebirth does everything ResetProgress does, plus increments rebirth
 		rebirthCount = 1,
 		totalClicks = 100,
 		ownedWings = true,
+		ownedWingsDemonic = true,
+		ownedWingsFae = true,
+		equippedWings = "Fae",
 		ownedLightTrail = true,
 		equippedCosmetic = "LightTrail",
 		completedMazeEast = true,
@@ -125,6 +139,9 @@ test("PerformRebirth does everything ResetProgress does, plus increments rebirth
 	assertEqual(after.totalClicks, 100, "totalClicks preserved")
 	assertEqual(after.rebirthCount, 2, "rebirthCount incremented")
 	assertEqual(after.ownedWings, false, "ownedWings cleared")
+	assertEqual(after.ownedWingsDemonic, false, "ownedWingsDemonic cleared")
+	assertEqual(after.ownedWingsFae, false, "ownedWingsFae cleared")
+	assertEqual(after.equippedWings, "None", "equippedWings cleared")
 	assertEqual(after.ownedLightTrail, false, "ownedLightTrail cleared")
 	assertEqual(after.equippedCosmetic, "None", "equippedCosmetic cleared")
 	assertEqual(after.completedMazeEast, false, "completedMazeEast cleared")

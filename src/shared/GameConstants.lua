@@ -30,8 +30,19 @@ local GameConstants = {
 	-- attempt is a no-op rather than a second stack. RobuxCost/DevProductId
 	-- follow the same placeholder-until-a-real-Developer-Product-exists
 	-- convention as UPGRADES.
+	-- Wings' 5 styles (see docs/superpowers/specs/2026-08-20-wings-styles-design.md)
+	-- are a deliberate escalating price ladder, not flat-per-item like the
+	-- trails below -- each style independently grants flight (see
+	-- FlightSystem.TryActivate), so owning any one is a complete purchase.
+	-- Points scale 10x per tier; Robux scales linearly (+200/tier) rather
+	-- than tracking the point curve 1:1, since a strict ratio applied to the
+	-- 2,000,000-point top tier would imply an absurd real-money price.
 	ITEMS = {
-		Wings = { Cost = 2000, RobuxCost = 200, DevProductId = 0 },
+		Wings = { Cost = 200, RobuxCost = 200, DevProductId = 0 },
+		WingsVoidtech = { Cost = 2000, RobuxCost = 400, DevProductId = 0 },
+		WingsDragon = { Cost = 20000, RobuxCost = 600, DevProductId = 0 },
+		WingsDemonic = { Cost = 200000, RobuxCost = 800, DevProductId = 0 },
+		WingsFae = { Cost = 2000000, RobuxCost = 1000, DevProductId = 0 },
 		FlameTrail = { Cost = 750, RobuxCost = 75, DevProductId = 0 },
 		LightTrail = { Cost = 750, RobuxCost = 75, DevProductId = 0 },
 	},
@@ -49,6 +60,10 @@ GameConstants.UPGRADE_FIELDS = {
 -- mirrors UPGRADE_FIELDS' shape for the one-time-owned items above.
 GameConstants.ITEM_FIELDS = {
 	Wings = "ownedWings",
+	WingsVoidtech = "ownedWingsVoidtech",
+	WingsDragon = "ownedWingsDragon",
+	WingsDemonic = "ownedWingsDemonic",
+	WingsFae = "ownedWingsFae",
 	FlameTrail = "ownedFlameTrail",
 	LightTrail = "ownedLightTrail",
 }
