@@ -123,8 +123,21 @@ function HazardTrailSystem.Start(sessionStore: SessionStoreModule)
 			-- shouldn't be able to corrupt this traversal.
 			local userIds = sessionStore.UserIds()
 			for _, userId in ipairs(userIds) do
-				local session = sessionStore.Peek(userId)
-				if session and session.equippedCosmetic ~= "None" then
+				-- Each player's tick runs in its own coroutine, same reasoning
+				-- as GameService.server.lua's idle-gain loop: an error handling
+				-- one player (a future edit, an unexpected Roblox API error)
+				-- can't kill this loop for every other online player.
+				task.spawn(function()
+					local session = sessionStore.Peek(userId)
+					if not session or session.equippedCosmetic == "None" then
+						-- Not currently wearing a trail -- don't let a stale
+						-- position from before unequipping (or from a previous
+						-- equip elsewhere on the map) draw a bogus segment
+						-- spanning the untracked gap on next equip.
+						lastCheckedPosition[userId] = nil
+						return
+					end
+
 					local player = Players:GetPlayerByUserId(userId)
 					local character = player and player.Character
 					local rootPart = character and character:FindFirstChild("HumanoidRootPart")
@@ -141,7 +154,7 @@ function HazardTrailSystem.Start(sessionStore: SessionStoreModule)
 
 						lastCheckedPosition[userId] = currentPosition
 					end
-				end
+				end)
 			end
 		end
 	end)
