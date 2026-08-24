@@ -13,6 +13,7 @@ local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
 local CosmeticsSystem = require(script.Parent:WaitForChild("CosmeticsSystem"))
 local WingsVisualSystem = require(script.Parent:WaitForChild("WingsVisualSystem"))
 local FlightSystem = require(script.Parent:WaitForChild("FlightSystem"))
+local HazardTrailSystem = require(script.Parent:WaitForChild("HazardTrailSystem"))
 local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 
@@ -345,17 +346,21 @@ RebirthEvent.OnServerEvent:Connect(function(player)
 	SessionStore.With(player.UserId, function(session)
 		-- Same GameHandlers-based orchestration as ResetEvent above (see
 		-- GameHandlers.HandleRebirth and its own Lune tests), plus
-		-- reapplying the (now-cleared) cosmetic to the live character --
-		-- PerformRebirth clears owned items/equippedCosmetic in session
-		-- data, but that alone doesn't touch whatever Trail/ParticleEmitter
-		-- is already live on this player's currently-spawned character;
-		-- without this, a player who rebirths while a cosmetic is equipped
-		-- would keep visibly trailing it until their next respawn, even
+		-- reapplying the (now-cleared) cosmetic and wings to the live
+		-- character -- PerformRebirth clears owned items/equippedCosmetic/
+		-- equippedWings in session data, but that alone doesn't touch
+		-- whatever Trail/ParticleEmitter or wing geometry is already live
+		-- on this player's currently-spawned character; without this, a
+		-- player who rebirths while a cosmetic or wings style is equipped
+		-- would keep visibly wearing it until their next respawn, even
 		-- though the server-authoritative session (and the Shop UI, via
 		-- syncPlayer) already say it's gone.
 		GameHandlers.HandleRebirth(session, {
 			applyCosmetic = function(s)
 				CosmeticsSystem.ApplyEquippedCosmetic(player, s)
+			end,
+			applyWings = function(s)
+				WingsVisualSystem.ApplyEquippedWings(player, s)
 			end,
 			saveScore = function(s, force)
 				-- Otherwise a stale pre-rebirth score can linger until the
@@ -578,5 +583,8 @@ CosmeticsSystem.Start(SessionStore)
 
 -- Start Wings Visual System (re-applies the equipped wings on every character (re)spawn)
 WingsVisualSystem.Start(SessionStore)
+
+-- Start Hazard Trail System (damaging ground trail for FlameTrail/LightTrail wearers)
+HazardTrailSystem.Start(SessionStore)
 
 print("Autoclicker Server Initialized")

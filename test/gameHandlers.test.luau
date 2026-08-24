@@ -65,6 +65,7 @@ local function spyDeps()
 		sync = 0,
 		saveSession = 0,
 		applyCosmetic = 0,
+		applyWings = 0,
 	}
 	local deps = {
 		saveScore = function(s, force)
@@ -78,6 +79,9 @@ local function spyDeps()
 		end,
 		applyCosmetic = function()
 			calls.applyCosmetic += 1
+		end,
+		applyWings = function()
+			calls.applyWings += 1
 		end,
 	}
 	return deps, calls
@@ -132,6 +136,7 @@ test("HandleRebirth no-ops below the rebirth threshold", function()
 	assertEqual(calls.sync, 0, "no sync")
 	assertEqual(calls.saveSession, 0, "no durable save")
 	assertEqual(calls.applyCosmetic, 0, "no cosmetic reapply")
+	assertEqual(calls.applyWings, 0, "no wings reapply")
 end)
 
 test("HandleRebirth applies cosmetics, force-saves, syncs, and saves when eligible", function()
@@ -146,6 +151,7 @@ test("HandleRebirth applies cosmetics, force-saves, syncs, and saves when eligib
 	assertEqual(s.ownedWings, false, "items cleared on Rebirth, unlike an ordinary Reset")
 	assertEqual(s.equippedCosmetic, "None", "equippedCosmetic cleared")
 	assertEqual(calls.applyCosmetic, 1, "cosmetic reapplied to the live character")
+	assertEqual(calls.applyWings, 1, "wings reapplied to the live character")
 	assertEqual(#calls.saveScore, 1, "saveScore called exactly once")
 	assertEqual(calls.saveScore[1].force, true, "forced -- a rebirth always wipes score")
 	assertEqual(calls.sync, 1, "synced once")

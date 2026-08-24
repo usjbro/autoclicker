@@ -84,6 +84,7 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 		useBaseSpeed = false,
 		speedSliderPercent = 42,
 		ownedWings = true,
+		ownedWingsVoidtech = true,
 		ownedWingsDragon = true,
 		equippedWings = "Dragon",
 		ownedFlameTrail = true,
@@ -105,6 +106,7 @@ test("ResetProgress zeroes score and upgrades but preserves clicks/rebirths/sett
 	-- Items are owned until rebirth, not wiped by an ordinary Reset -- see
 	-- PerformRebirth below, which does clear them.
 	assertEqual(after.ownedWings, true, "ownedWings preserved")
+	assertEqual(after.ownedWingsVoidtech, true, "ownedWingsVoidtech preserved")
 	assertEqual(after.ownedWingsDragon, true, "ownedWingsDragon preserved")
 	assertEqual(after.equippedWings, "Dragon", "equippedWings preserved")
 	assertEqual(after.ownedFlameTrail, true, "ownedFlameTrail preserved")
@@ -123,6 +125,7 @@ test("PerformRebirth does everything ResetProgress does, plus increments rebirth
 		rebirthCount = 1,
 		totalClicks = 100,
 		ownedWings = true,
+		ownedWingsDemonic = true,
 		ownedWingsFae = true,
 		equippedWings = "Fae",
 		ownedLightTrail = true,
@@ -136,6 +139,7 @@ test("PerformRebirth does everything ResetProgress does, plus increments rebirth
 	assertEqual(after.totalClicks, 100, "totalClicks preserved")
 	assertEqual(after.rebirthCount, 2, "rebirthCount incremented")
 	assertEqual(after.ownedWings, false, "ownedWings cleared")
+	assertEqual(after.ownedWingsDemonic, false, "ownedWingsDemonic cleared")
 	assertEqual(after.ownedWingsFae, false, "ownedWingsFae cleared")
 	assertEqual(after.equippedWings, "None", "equippedWings cleared")
 	assertEqual(after.ownedLightTrail, false, "ownedLightTrail cleared")

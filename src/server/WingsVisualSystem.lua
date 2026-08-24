@@ -80,20 +80,25 @@ local function buildVoidtechSide(rootPart: BasePart, folder: Folder, side: numbe
 		local localCFrame = CFrame.new(side * 0.3, 0.9 - t * 0.3, -0.3)
 			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
 
+		local panelHeight = 0.9
 		local panel = Instance.new("Part")
 		panel.Name = "Panel" .. i
-		panel.Size = Vector3.new(0.2, 0.9, length)
+		panel.Size = Vector3.new(0.2, panelHeight, length)
 		panel.Color = Color3.fromHex("1e1e2f")
 		panel.Material = Enum.Material.SmoothPlastic
 		panel.CFrame = rootPart.CFrame * localCFrame
 		weldPart(panel, rootPart, folder)
 
+		-- Sits flush on the panel's top edge -- derived from panelHeight
+		-- (not a bare magic number) so it stays flush if panelHeight is
+		-- ever retuned, same reasoning as buildDemonicSide's glow offset
+		-- below being derived from its spine's length.
 		local seam = Instance.new("Part")
 		seam.Name = "PanelSeam" .. i
 		seam.Size = Vector3.new(0.06, 0.06, length)
 		seam.Color = Color3.fromHex("6c5ce7")
 		seam.Material = Enum.Material.Neon
-		seam.CFrame = panel.CFrame * CFrame.new(0, 0.45, 0)
+		seam.CFrame = panel.CFrame * CFrame.new(0, panelHeight / 2, 0)
 		weldPart(seam, rootPart, folder)
 	end
 end
@@ -208,10 +213,12 @@ end
 -- Applies session.equippedWings to a player's current character, if any.
 -- This is the only place wing geometry gets attached -- called from
 -- CharacterAdded below, and directly from GameService.server.lua's
--- PurchaseItemEvent/EquipWingsEvent handlers (already inside
--- SessionStore.With) so an already-spawned character updates immediately
--- without needing to respawn -- same pattern CosmeticsSystem.
--- ApplyEquippedCosmetic already establishes.
+-- EquipWingsEvent handler and RebirthEvent's GameHandlers.HandleRebirth
+-- orchestration (both already inside SessionStore.With) so an
+-- already-spawned character updates immediately without needing to
+-- respawn -- same pattern CosmeticsSystem.ApplyEquippedCosmetic already
+-- establishes. PurchaseItemEvent does NOT call this -- buying a Wings
+-- style doesn't auto-equip it, same as FlameTrail/LightTrail.
 function WingsVisualSystem.ApplyEquippedWings(player: Player, session: GameLogic.Session)
 	local character = player.Character
 	if not character then return end

@@ -85,6 +85,8 @@ end
 --     compute WalkSpeed; doesn't mutate the session, so routing it through
 --     With would only add lock contention (e.g. waiting on an in-flight
 --     Robux-purchase save) with no correctness benefit.
+--   - HazardTrailSystem's per-tick position check: display/geometry only,
+--     doesn't mutate the session, same reasoning as MovementSystem above.
 -- (RobuxPurchaseManager's grant flow uses With, not Peek -- its receipt-claim
 -- bookkeeping needs the lock, the same as any other read-modify-write.)
 -- Do NOT use this for anything that reads a value and later writes back
