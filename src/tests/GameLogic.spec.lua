@@ -69,6 +69,7 @@ return function()
 				useBaseSpeed = false,
 				speedSliderPercent = 42,
 				ownedWings = true,
+				ownedWingsVoidtech = true,
 				ownedWingsDragon = true,
 				ownedFlameTrail = true,
 				equippedCosmetic = "FlameTrail",
@@ -90,6 +91,7 @@ return function()
 			-- Items are owned until rebirth, not wiped by an ordinary Reset --
 			-- see PerformRebirth below, which does clear them.
 			expect(after.ownedWings).to.equal(true)
+			expect(after.ownedWingsVoidtech).to.equal(true)
 			expect(after.ownedWingsDragon).to.equal(true)
 			expect(after.ownedFlameTrail).to.equal(true)
 			expect(after.equippedCosmetic).to.equal("FlameTrail")
@@ -110,6 +112,7 @@ return function()
 				rebirthCount = 1,
 				totalClicks = 100,
 				ownedWings = true,
+				ownedWingsDemonic = true,
 				ownedWingsFae = true,
 				ownedLightTrail = true,
 				equippedCosmetic = "LightTrail",
@@ -123,6 +126,7 @@ return function()
 			expect(after.totalClicks).to.equal(100)
 			expect(after.rebirthCount).to.equal(2)
 			expect(after.ownedWings).to.equal(false)
+			expect(after.ownedWingsDemonic).to.equal(false)
 			expect(after.ownedWingsFae).to.equal(false)
 			expect(after.ownedLightTrail).to.equal(false)
 			expect(after.equippedCosmetic).to.equal("None")

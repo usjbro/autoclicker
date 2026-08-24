@@ -13,6 +13,7 @@ local MovementSystem = require(script.Parent:WaitForChild("MovementSystem"))
 local CosmeticsSystem = require(script.Parent:WaitForChild("CosmeticsSystem"))
 local WingsVisualSystem = require(script.Parent:WaitForChild("WingsVisualSystem"))
 local FlightSystem = require(script.Parent:WaitForChild("FlightSystem"))
+local HazardTrailSystem = require(script.Parent:WaitForChild("HazardTrailSystem"))
 local SessionStore = require(script.Parent:WaitForChild("SessionStore"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 
@@ -578,5 +579,8 @@ CosmeticsSystem.Start(SessionStore)
 
 -- Start Wings Visual System (re-applies the equipped wings on every character (re)spawn)
 WingsVisualSystem.Start(SessionStore)
+
+-- Start Hazard Trail System (damaging ground trail for FlameTrail/LightTrail wearers)
+HazardTrailSystem.Start(SessionStore)
 
 print("Autoclicker Server Initialized")
