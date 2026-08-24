@@ -959,7 +959,7 @@ SyncState.OnClientEvent:Connect(function(state: GameLogic.Session)
 
 	lastKnownEquippedTrail = state.equippedCosmetic
 	lastKnownEquippedWings = state.equippedWings
-	ownedWings = state.ownedWings or state.ownedWingsVoidtech or state.ownedWingsDragon or state.ownedWingsDemonic or state.ownedWingsFae
+	ownedWings = GameLogic.HasAnyWings(state)
 
 	for _, row in ipairs(itemRows) do
 		local owned = state[row.Field]
