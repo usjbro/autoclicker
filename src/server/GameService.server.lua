@@ -74,7 +74,8 @@ if not voidBoxOk then
 	warn("Failed to create void environment: " .. tostring(voidBoxErr))
 end
 
--- Explorable map (platforms/ramps/stairs/decoration) for Movement mode --
+-- Explorable map (four self-contained maze tiles plus hub decoration) for
+-- Movement mode --
 -- built right after the void environment succeeds, still before any Player
 -- connections below, so a joining player can never spawn before the map
 -- exists. A failure here is likewise non-fatal to the rest of the gameplay
@@ -122,16 +123,77 @@ local function isOnResetRebirthCooldown(userId: number): boolean
 	return last ~= nil and (os.clock() - last) < RESET_REBIRTH_COOLDOWN_SECONDS
 end
 
--- Maze completion rewards: wired here, not in MapBuilder.lua (which stays
--- pure geometry -- see its own top-of-file comment), by finding each wing's
--- named goal part under workspace.Map (recursive find -- goal parts live
--- inside each wing's own sub-Folder, not directly under Map) and listening
--- for a player's character to touch it. isCompleted/grant are per-wing
--- closures over one concrete Session field each, rather than a generic loop
--- indexing Session by a dynamic string key from GameConstants.MAZE_GOALS --
--- Session is a fixed-field record type, not an index-signature type, so a
--- dynamic-key lookup wouldn't type-check under --!strict (same reasoning as
+-- How far above a teleport destination's floor position to land a
+-- character -- clears the floor so they don't spawn clipped into it,
+-- matching VoidSpawn's own similar clearance for the initial join spawn.
+local TELEPORT_HEIGHT_OFFSET = 5
+
+local function teleportCharacterTo(character: Instance, position: Vector3)
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if not rootPart or not rootPart:IsA("BasePart") then return end
+	rootPart.CFrame = CFrame.new(position + Vector3.new(0, TELEPORT_HEIGHT_OFFSET, 0))
+end
+
+-- Looked up fresh each call (not cached), matching wireMazeGoal/wirePortal's
+-- own tolerance for a missing map -- if VoidSpawn somehow doesn't exist
+-- (voidBoxOk was false), falls back to a reasonable default rather than
+-- erroring the whole Touched handler.
+local function hubSpawnPosition(): Vector3
+	local voidSpawn = workspace:FindFirstChild("VoidSpawn")
+	if voidSpawn and voidSpawn:IsA("BasePart") then
+		return voidSpawn.Position
+	end
+	return Vector3.new(0, 5, 0)
+end
+
+-- Portal-in: finds a wing's named portal pad and its matching spawn marker
+-- (both built by MapBuilder.lua -- this file stays the only place that
+-- wires actual gameplay behavior onto its pure geometry, same reasoning as
+-- wireMazeGoal below) and teleports a toucher's character there. No
+-- SessionStore.With needed -- teleporting doesn't mutate session state.
+--
+-- Same accepted-gap reasoning as wireMazeGoal below: this trusts a physics
+-- Touched event with no server-side check on how the toucher got there.
+-- The only thing a modified client could gain by exploiting this
+-- specifically is a free teleport to a maze's center -- no reward, no
+-- score, nothing session-state-changing -- so the risk here is strictly
+-- smaller than the goal's.
+local function wirePortal(mapFolder: Instance, wingName: string)
+	local portalPart = mapFolder:FindFirstChild(wingName .. "Portal", true)
+	if not portalPart or not portalPart:IsA("BasePart") then return end
+	local spawnMarker = mapFolder:FindFirstChild(wingName .. "Spawn", true)
+	if not spawnMarker or not spawnMarker:IsA("BasePart") then return end
+	local destination = spawnMarker.Position
+
+	portalPart.Touched:Connect(function(hit: BasePart)
+		local character = hit.Parent
+		if not character then return end
+		local player = Players:GetPlayerFromCharacter(character)
+		if not player then return end
+		teleportCharacterTo(character, destination)
+	end)
+end
+
+-- Maze completion rewards and the maze's exit: wired here, not in
+-- MapBuilder.lua (which stays pure geometry -- see its own top-of-file
+-- comment), by finding each wing's named goal part under workspace.Map
+-- (recursive find -- goal parts live inside each wing's own sub-Folder,
+-- not directly under Map) and listening for a player's character to touch
+-- it. isCompleted/grant are per-wing closures over one concrete Session
+-- field each, rather than a generic loop indexing Session by a dynamic
+-- string key from GameConstants.MAZE_GOALS -- Session is a fixed-field
+-- record type, not an index-signature type, so a dynamic-key lookup
+-- wouldn't type-check under --!strict (same reasoning as
 -- GameLogic.CalculateMazeBonusRate).
+--
+-- The goal is now both the once-per-run reward trigger AND the always-
+-- available exit (issue #60) -- touching it teleports back to the hub on
+-- EVERY touch, unconditionally, even after the reward's already been
+-- claimed on an earlier visit, since a player revisiting an
+-- already-completed maze still needs a way out. The teleport fires first,
+-- before the (possibly slower, DataStore-touching) reward grant below --
+-- same "don't make the player wait" reasoning ResetEvent/RebirthEvent
+-- already use for syncing before their own durable save.
 --
 -- Known accepted gap: unlike every RemoteEvent handler above, this trusts a
 -- physics Touched event with no server-side check on how the toucher got
@@ -145,11 +207,11 @@ end
 -- tradeoff, not an oversight, if this ever needs revisiting.
 local function wireMazeGoal(
 	mapFolder: Instance,
-	partName: string,
+	wingName: string,
 	isCompleted: (GameLogic.Session) -> boolean,
 	grant: (GameLogic.Session) -> ()
 )
-	local goalPart = mapFolder:FindFirstChild(partName, true)
+	local goalPart = mapFolder:FindFirstChild(wingName .. "Goal", true)
 	if not goalPart or not goalPart:IsA("BasePart") then return end
 
 	goalPart.Touched:Connect(function(hit: BasePart)
@@ -158,10 +220,13 @@ local function wireMazeGoal(
 		local player = Players:GetPlayerFromCharacter(character)
 		if not player then return end
 
+		teleportCharacterTo(character, hubSpawnPosition())
+
 		SessionStore.With(player.UserId, function(session)
 			-- Already granted -- also doubles as the debounce, since Touched
 			-- can fire repeatedly while a player stands on the pad; the
-			-- second and later fires just no-op here.
+			-- second and later fires just no-op here (the teleport above
+			-- still fires every time, unconditionally).
 			if isCompleted(session) then return end
 			grant(session)
 			syncPlayer(player)
@@ -174,15 +239,19 @@ local function wireMazeGoal(
 end
 
 -- Only attempted if the map actually built -- MapBuilder.Build() already
--- warned above if it didn't, and there's nothing to wire goals to in that
--- case.
+-- warned above if it didn't, and there's nothing to wire portals/goals to
+-- in that case.
 if mapOk then
 	local mapFolder = workspace:FindFirstChild("Map")
 	if mapFolder then
-		wireMazeGoal(mapFolder, "MazeNGoal", function(s) return s.completedMazeNorth end, function(s) s.completedMazeNorth = true end)
-		wireMazeGoal(mapFolder, "MazeSGoal", function(s) return s.completedMazeSouth end, function(s) s.completedMazeSouth = true end)
-		wireMazeGoal(mapFolder, "MazeEGoal", function(s) return s.completedMazeEast end, function(s) s.completedMazeEast = true end)
-		wireMazeGoal(mapFolder, "MazeWGoal", function(s) return s.completedMazeWest end, function(s) s.completedMazeWest = true end)
+		wirePortal(mapFolder, "MazeN")
+		wirePortal(mapFolder, "MazeE")
+		wirePortal(mapFolder, "MazeS")
+		wirePortal(mapFolder, "MazeW")
+		wireMazeGoal(mapFolder, "MazeN", function(s) return s.completedMazeNorth end, function(s) s.completedMazeNorth = true end)
+		wireMazeGoal(mapFolder, "MazeS", function(s) return s.completedMazeSouth end, function(s) s.completedMazeSouth = true end)
+		wireMazeGoal(mapFolder, "MazeE", function(s) return s.completedMazeEast end, function(s) s.completedMazeEast = true end)
+		wireMazeGoal(mapFolder, "MazeW", function(s) return s.completedMazeWest end, function(s) s.completedMazeWest = true end)
 	end
 end
 
