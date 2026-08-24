@@ -1,53 +1,76 @@
 --!strict
-local Players = game:GetService("Players")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local GameLogic = require(Shared:WaitForChild("GameLogic"))
+local Players = game:GetService("Players")
 local SessionStoreType = require(script.Parent:WaitForChild("SessionStore"))
 type SessionStoreModule = SessionStoreType.SessionStoreModule
 
 local WingsVisualSystem = {}
 
--- Every style's parts (both sides) live under one Folder on the character's
--- HumanoidRootPart -- clearing on re-equip/respawn is just destroying this
--- one Folder, rather than tracking a fixed list of individual instance
--- names the way CosmeticsSystem.lua has to (that file's trail/particle/
--- fire/light instances are named individually since they're not grouped
--- under a single container; wings don't need that since every wing part is
--- generated fresh from the same style table every time, nothing persists
--- individual identity across a re-equip).
-local WINGS_FOLDER_NAME = "CosmeticWings"
+-- Wings are a real Roblox Accessory, not a set of parts hand-welded onto
+-- HumanoidRootPart -- Humanoid:AddAccessory positions/orients the whole
+-- assembly by aligning Handle's own "BodyBackAttachment" Attachment with
+-- the matching one Roblox puts on every avatar's torso (UpperTorso on R15,
+-- Torso on R6), which is the standard, robust way to attach a back-worn
+-- item and avoids hand-rolling that alignment via manual CFrame math on a
+-- moving, respawning character.
+local WINGS_ACCESSORY_NAME = "CosmeticWings"
 
--- Welds `part` rigidly onto `rootPart` at part's current CFrame (must be set
--- BEFORE calling this -- WeldConstraint locks in whatever relative offset
--- exists between the two parts at the moment it's created, so setting the
--- CFrame first is what determines the part's fixed position on the
--- character afterward). Every wing part goes through this, not just
--- Attachments (unlike CosmeticsSystem's trail, which only ever needs
--- Attachments -- a Trail's shape comes from Attachment motion history, but
--- a wing is real welded geometry).
-local function weldPart(part: BasePart, rootPart: BasePart, folder: Folder)
+-- Every avatar (R15 or R6) has a BodyBackAttachment on its torso-equivalent
+-- part by default -- check both names since this game doesn't force a
+-- RigType and either could show up depending on the player's avatar.
+local function findBackAttachment(character: Model): Attachment?
+	for _, torsoName in { "UpperTorso", "Torso" } do
+		local torso = character:FindFirstChild(torsoName)
+		if torso and torso:IsA("BasePart") then
+			local attachment = torso:FindFirstChild("BodyBackAttachment")
+			if attachment and attachment:IsA("Attachment") then
+				return attachment
+			end
+		end
+	end
+	return nil
+end
+
+-- Welds `part` rigidly onto `handle` at part's current CFrame (must be set
+-- BEFORE calling this, relative to handle's own local origin -- see each
+-- buildXSide function below). Built while the whole Accessory is still
+-- unparented from the character; the WeldConstraint's locked-in relative
+-- offset stays correct once Humanoid:AddAccessory later repositions Handle
+-- onto the character's back, since a WeldConstraint holds a *relative*
+-- transform regardless of how either part is subsequently moved.
+local function weldPart(part: BasePart, handle: BasePart, accessory: Accessory)
 	part.Anchored = false
 	part.CanCollide = false
 	part.CastShadow = false
 	part.Locked = true
-	part.Parent = folder
+	part.Parent = accessory
 
 	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = rootPart
+	weld.Part0 = handle
 	weld.Part1 = part
 	weld.Parent = part
 end
 
+-- Every offset below is relative to Handle's own local origin, which
+-- Humanoid:AddAccessory aligns exactly with BodyBackAttachment's world
+-- CFrame -- i.e. local (0,0,0) sits right at the back of the torso, local
+-- +Z points backward/outward (matching this codebase's own front="-Z"
+-- convention -- see FlightSystem.lua's use of CFrame.LookVector, which is
+-- the local -Z axis), +Y is up, +X is the character's right. A wing should
+-- therefore start near Z=0 (hugging the back) and lean into positive Z as
+-- it fans outward, not negative Z (which would push it through the chest).
+
 -- Classic Feathered: 5 layered feathers per side, fanning outward/upward
 -- from a shoulder point, tapering shorter toward the outer edge. White/
 -- cream with a thin gold Neon trim line per feather.
-local function buildFeatheredSide(rootPart: BasePart, folder: Folder, side: number)
+local function buildFeatheredSide(handle: BasePart, accessory: Accessory, side: number)
 	local featherCount = 5
 	for i = 1, featherCount do
 		local t = (i - 1) / (featherCount - 1)
 		local spreadDeg = 20 + t * 50
 		local length = 2.2 - t * 0.6
-		local localCFrame = CFrame.new(side * 0.3, 0.8, -0.3)
+		local localCFrame = CFrame.new(side * 0.3, 0.3, 0.15)
 			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
 			* CFrame.Angles(math.rad(-15 - t * 10), 0, 0)
 
@@ -56,8 +79,8 @@ local function buildFeatheredSide(rootPart: BasePart, folder: Folder, side: numb
 		feather.Size = Vector3.new(0.15, 0.5, length)
 		feather.Color = Color3.fromHex("f4f0e6")
 		feather.Material = Enum.Material.SmoothPlastic
-		feather.CFrame = rootPart.CFrame * localCFrame
-		weldPart(feather, rootPart, folder)
+		feather.CFrame = handle.CFrame * localCFrame
+		weldPart(feather, handle, accessory)
 
 		local trim = Instance.new("Part")
 		trim.Name = "FeatherTrim" .. i
@@ -65,19 +88,19 @@ local function buildFeatheredSide(rootPart: BasePart, folder: Folder, side: numb
 		trim.Color = Color3.fromHex("d4af37")
 		trim.Material = Enum.Material.Neon
 		trim.CFrame = feather.CFrame
-		weldPart(trim, rootPart, folder)
+		weldPart(trim, handle, accessory)
 	end
 end
 
 -- Voidtech: 3 angular blocky panels per side, glowing purple (#6c5ce7,
 -- this game's own existing accent color) Neon seam line per panel.
-local function buildVoidtechSide(rootPart: BasePart, folder: Folder, side: number)
+local function buildVoidtechSide(handle: BasePart, accessory: Accessory, side: number)
 	local panelCount = 3
 	for i = 1, panelCount do
 		local t = (i - 1) / (panelCount - 1)
 		local spreadDeg = 15 + t * 45
 		local length = 2.5 - t * 0.8
-		local localCFrame = CFrame.new(side * 0.3, 0.9 - t * 0.3, -0.3)
+		local localCFrame = CFrame.new(side * 0.3, 0.35 - t * 0.3, 0.15)
 			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
 
 		local panelHeight = 0.9
@@ -86,8 +109,8 @@ local function buildVoidtechSide(rootPart: BasePart, folder: Folder, side: numbe
 		panel.Size = Vector3.new(0.2, panelHeight, length)
 		panel.Color = Color3.fromHex("1e1e2f")
 		panel.Material = Enum.Material.SmoothPlastic
-		panel.CFrame = rootPart.CFrame * localCFrame
-		weldPart(panel, rootPart, folder)
+		panel.CFrame = handle.CFrame * localCFrame
+		weldPart(panel, handle, accessory)
 
 		-- Sits flush on the panel's top edge -- derived from panelHeight
 		-- (not a bare magic number) so it stays flush if panelHeight is
@@ -99,7 +122,7 @@ local function buildVoidtechSide(rootPart: BasePart, folder: Folder, side: numbe
 		seam.Color = Color3.fromHex("6c5ce7")
 		seam.Material = Enum.Material.Neon
 		seam.CFrame = panel.CFrame * CFrame.new(0, panelHeight / 2, 0)
-		weldPart(seam, rootPart, folder)
+		weldPart(seam, handle, accessory)
 	end
 end
 
@@ -107,13 +130,13 @@ end
 -- reptilian membrane -- deliberately a different silhouette/material from
 -- Demonic below (solid wedges vs. sparse bone spines), not a recolor of
 -- the same shape.
-local function buildDragonSide(rootPart: BasePart, folder: Folder, side: number)
+local function buildDragonSide(handle: BasePart, accessory: Accessory, side: number)
 	local spineCount = 4
 	for i = 1, spineCount do
 		local t = (i - 1) / (spineCount - 1)
 		local spreadDeg = 10 + t * 65
 		local length = 1.8 + t * 1.4
-		local localCFrame = CFrame.new(side * 0.3, 0.7, -0.3)
+		local localCFrame = CFrame.new(side * 0.3, 0.25, 0.15)
 			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
 			* CFrame.Angles(math.rad(-10 - t * 25), 0, 0)
 
@@ -122,8 +145,8 @@ local function buildDragonSide(rootPart: BasePart, folder: Folder, side: number)
 		spine.Size = Vector3.new(0.12, 0.35, length)
 		spine.Color = Color3.fromHex("3a0a0a")
 		spine.Material = Enum.Material.SmoothPlastic
-		spine.CFrame = rootPart.CFrame * localCFrame
-		weldPart(spine, rootPart, folder)
+		spine.CFrame = handle.CFrame * localCFrame
+		weldPart(spine, handle, accessory)
 	end
 end
 
@@ -132,13 +155,13 @@ end
 -- Instance.new("Fire") at each tip for trailing embers -- same stock
 -- primitive CosmeticsSystem.lua's FlameTrail already relies on for exactly
 -- this reason (no custom Texture/Image assets).
-local function buildDemonicSide(rootPart: BasePart, folder: Folder, side: number)
+local function buildDemonicSide(handle: BasePart, accessory: Accessory, side: number)
 	local spineCount = 3
 	for i = 1, spineCount do
 		local t = (i - 1) / (spineCount - 1)
 		local spreadDeg = 15 + t * 60
 		local length = 2.0 + t * 1.0
-		local localCFrame = CFrame.new(side * 0.3, 0.75, -0.3)
+		local localCFrame = CFrame.new(side * 0.3, 0.3, 0.15)
 			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
 			* CFrame.Angles(math.rad(-15 - t * 20), 0, 0)
 
@@ -147,8 +170,8 @@ local function buildDemonicSide(rootPart: BasePart, folder: Folder, side: number
 		spine.Size = Vector3.new(0.1, 0.1, length)
 		spine.Color = Color3.fromHex("0d0d0d")
 		spine.Material = Enum.Material.SmoothPlastic
-		spine.CFrame = rootPart.CFrame * localCFrame
-		weldPart(spine, rootPart, folder)
+		spine.CFrame = handle.CFrame * localCFrame
+		weldPart(spine, handle, accessory)
 
 		local glow = Instance.new("Part")
 		glow.Name = "BoneSpineGlow" .. i
@@ -157,7 +180,7 @@ local function buildDemonicSide(rootPart: BasePart, folder: Folder, side: number
 		glow.Color = Color3.fromHex("ff2222")
 		glow.Material = Enum.Material.Neon
 		glow.CFrame = spine.CFrame * CFrame.new(0, 0, -length / 2)
-		weldPart(glow, rootPart, folder)
+		weldPart(glow, handle, accessory)
 
 		local embers = Instance.new("Fire")
 		embers.Name = "BoneSpineEmbers" .. i
@@ -171,13 +194,13 @@ end
 -- high transparency + Neon material for a delicate glowing look --
 -- deliberately a different silhouette/material from the other 3 "big
 -- bold wings" styles.
-local function buildFaeSide(rootPart: BasePart, folder: Folder, side: number)
+local function buildFaeSide(handle: BasePart, accessory: Accessory, side: number)
 	local lobes = {
-		{ y = 0.9, spreadDeg = 25, length = 1.1 },
-		{ y = 0.5, spreadDeg = 45, length = 0.8 },
+		{ y = 0.35, spreadDeg = 25, length = 1.1 },
+		{ y = 0.1, spreadDeg = 45, length = 0.8 },
 	}
 	for i, lobe in ipairs(lobes) do
-		local localCFrame = CFrame.new(side * 0.25, lobe.y, -0.2)
+		local localCFrame = CFrame.new(side * 0.25, lobe.y, 0.1)
 			* CFrame.Angles(0, 0, math.rad(side * lobe.spreadDeg))
 
 		local panel = Instance.new("Part")
@@ -186,8 +209,8 @@ local function buildFaeSide(rootPart: BasePart, folder: Folder, side: number)
 		panel.Color = Color3.fromHex("a29bfe")
 		panel.Material = Enum.Material.Neon
 		panel.Transparency = 0.55
-		panel.CFrame = rootPart.CFrame * localCFrame
-		weldPart(panel, rootPart, folder)
+		panel.CFrame = handle.CFrame * localCFrame
+		weldPart(panel, handle, accessory)
 	end
 end
 
@@ -195,7 +218,7 @@ end
 -- (minus "None", which correctly finds nothing and no-ops below) -- every
 -- style builds both sides via one shared per-side function, mirrored by
 -- sign (-1 left, 1 right), not five one-off left+right implementations.
-local SIDE_BUILDERS: { [string]: (BasePart, Folder, number) -> () } = {
+local SIDE_BUILDERS: { [string]: (BasePart, Accessory, number) -> () } = {
 	Classic = buildFeatheredSide,
 	Voidtech = buildVoidtechSide,
 	Dragon = buildDragonSide,
@@ -203,11 +226,45 @@ local SIDE_BUILDERS: { [string]: (BasePart, Folder, number) -> () } = {
 	Fae = buildFaeSide,
 }
 
-local function clearWings(rootPart: BasePart)
-	local existing = rootPart:FindFirstChild(WINGS_FOLDER_NAME)
+local function clearWings(character: Model)
+	local existing = character:FindFirstChild(WINGS_ACCESSORY_NAME)
 	if existing then
 		existing:Destroy()
 	end
+end
+
+-- Builds the full Accessory (Handle + both sides' geometry) for a style,
+-- entirely unparented from the character -- Humanoid:AddAccessory is what
+-- actually attaches it, so nothing here needs the character's real
+-- position/orientation. Handle's own Attachment is named "BodyBackAttachment"
+-- to match the target on the character's torso (see findBackAttachment) --
+-- Roblox's AddAccessory matches Handle's attachment to a body attachment
+-- by name, then rigidly repositions Handle (and everything welded to it)
+-- so the two coincide.
+local function buildWingsAccessory(buildSide: (BasePart, Accessory, number) -> ()): Accessory
+	local accessory = Instance.new("Accessory")
+	accessory.Name = WINGS_ACCESSORY_NAME
+	accessory.AccessoryType = Enum.AccessoryType.Back
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = Vector3.new(0.2, 0.2, 0.2)
+	handle.Transparency = 1
+	handle.CanCollide = false
+	handle.CanQuery = false
+	handle.CastShadow = false
+	handle.Massless = true
+	handle.CFrame = CFrame.new()
+	handle.Parent = accessory
+
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "BodyBackAttachment"
+	attachment.Parent = handle
+
+	buildSide(handle, accessory, -1)
+	buildSide(handle, accessory, 1)
+
+	return accessory
 end
 
 -- Applies session.equippedWings to a player's current character, if any.
@@ -222,23 +279,21 @@ end
 function WingsVisualSystem.ApplyEquippedWings(player: Player, session: GameLogic.Session)
 	local character = player.Character
 	if not character then return end
-	local rootPart = character:FindFirstChild("HumanoidRootPart")
-	if not rootPart or not rootPart:IsA("BasePart") then return end
 
-	clearWings(rootPart)
+	clearWings(character)
 
 	local buildSide = SIDE_BUILDERS[session.equippedWings]
 	if not buildSide then return end -- "None"
 
-	local folder = Instance.new("Folder")
-	folder.Name = WINGS_FOLDER_NAME
-	folder.Parent = rootPart
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+	if not findBackAttachment(character) then return end -- no matching attachment on this avatar's rig
 
-	buildSide(rootPart, folder, -1)
-	buildSide(rootPart, folder, 1)
+	local accessory = buildWingsAccessory(buildSide)
+	humanoid:AddAccessory(accessory)
 end
 
--- Wings don't survive a respawn (a fresh character has no welded parts at
+-- Wings don't survive a respawn (a fresh character has no accessory at
 -- all), so reapply on every character (re)creation -- same pattern
 -- CosmeticsSystem.Start/MovementSystem.Start already use.
 function WingsVisualSystem.Start(sessionStore: SessionStoreModule)
