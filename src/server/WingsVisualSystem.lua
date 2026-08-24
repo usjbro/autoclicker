@@ -73,12 +73,25 @@ end
 
 -- Every offset below is relative to Handle's own local origin, which
 -- Humanoid:AddAccessory aligns exactly with BodyBackAttachment's world
--- CFrame -- i.e. local (0,0,0) sits right at the back of the torso, local
--- +Z points backward/outward (matching this codebase's own front="-Z"
--- convention -- see FlightSystem.lua's use of CFrame.LookVector, which is
--- the local -Z axis), +Y is up, +X is the character's right. A wing should
--- therefore start near Z=0 (hugging the back) and lean into positive Z as
--- it fans outward, not negative Z (which would push it through the chest).
+-- CFrame -- i.e. local (0,0,0) sits right at the back of the torso. This
+-- does NOT match HumanoidRootPart's own raw axis convention (front="-Z",
+-- see FlightSystem.lua's CFrame.LookVector) -- BodyBackAttachment carries
+-- its own authored orientation, confirmed empirically (RGB axis-marker
+-- beams welded to Handle, screenshotted in Studio once actually attached
+-- to a character) to be: +Y is up (same as expected), +Z is LATERAL
+-- (left/right across the back, not front/back), and +X is DEPTH
+-- (front/back, not left/right). A rotation therefore needs to happen
+-- around X (mixes Y/Z, i.e. up<->lateral) to fan a wing outward to the
+-- side, not around Z as a naive port of HumanoidRootPart-relative math
+-- would assume -- that was the root cause of wings previously towering
+-- above the character's head instead of spreading across the back.
+--
+-- DEPTH_SIGN below is the one piece we could NOT confirm from the axis
+-- markers (they only proved the local Y/Z/X *roles*, not which literal
+-- sign of X points away from the chest vs. into it) -- if wings render
+-- embedded in the character's chest instead of hugging their back, flip
+-- this single constant.
+local DEPTH_SIGN = 1
 
 -- Classic Feathered: 5 layered feathers per side, fanning outward/upward
 -- from a shoulder point, tapering shorter toward the outer edge. White/
@@ -89,9 +102,9 @@ local function buildFeatheredSide(handle: BasePart, accessory: Accessory, side: 
 		local t = (i - 1) / (featherCount - 1)
 		local spreadDeg = 20 + t * 50
 		local length = 2.2 - t * 0.6
-		local localCFrame = CFrame.new(side * 0.3, 0.3, 0.15)
-			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
-			* CFrame.Angles(math.rad(-15 - t * 10), 0, 0)
+		local localCFrame = CFrame.new(0.15 * DEPTH_SIGN, 0.3, side * 0.3)
+			* CFrame.Angles(math.rad(side * spreadDeg), 0, 0)
+			* CFrame.Angles(0, 0, math.rad(-15 - t * 10))
 
 		local feather = Instance.new("WedgePart")
 		feather.Name = "Feather" .. i
@@ -119,8 +132,8 @@ local function buildVoidtechSide(handle: BasePart, accessory: Accessory, side: n
 		local t = (i - 1) / (panelCount - 1)
 		local spreadDeg = 15 + t * 45
 		local length = 2.5 - t * 0.8
-		local localCFrame = CFrame.new(side * 0.3, 0.35 - t * 0.3, 0.15)
-			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
+		local localCFrame = CFrame.new(0.15 * DEPTH_SIGN, 0.35 - t * 0.3, side * 0.3)
+			* CFrame.Angles(math.rad(side * spreadDeg), 0, 0)
 
 		local panelHeight = 0.9
 		local panel = Instance.new("Part")
@@ -155,9 +168,9 @@ local function buildDragonSide(handle: BasePart, accessory: Accessory, side: num
 		local t = (i - 1) / (spineCount - 1)
 		local spreadDeg = 10 + t * 65
 		local length = 1.8 + t * 1.4
-		local localCFrame = CFrame.new(side * 0.3, 0.25, 0.15)
-			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
-			* CFrame.Angles(math.rad(-10 - t * 25), 0, 0)
+		local localCFrame = CFrame.new(0.15 * DEPTH_SIGN, 0.25, side * 0.3)
+			* CFrame.Angles(math.rad(side * spreadDeg), 0, 0)
+			* CFrame.Angles(0, 0, math.rad(-10 - t * 25))
 
 		local spine = Instance.new("WedgePart")
 		spine.Name = "MembraneSpine" .. i
@@ -180,9 +193,9 @@ local function buildDemonicSide(handle: BasePart, accessory: Accessory, side: nu
 		local t = (i - 1) / (spineCount - 1)
 		local spreadDeg = 15 + t * 60
 		local length = 2.0 + t * 1.0
-		local localCFrame = CFrame.new(side * 0.3, 0.3, 0.15)
-			* CFrame.Angles(0, 0, math.rad(side * spreadDeg))
-			* CFrame.Angles(math.rad(-15 - t * 20), 0, 0)
+		local localCFrame = CFrame.new(0.15 * DEPTH_SIGN, 0.3, side * 0.3)
+			* CFrame.Angles(math.rad(side * spreadDeg), 0, 0)
+			* CFrame.Angles(0, 0, math.rad(-15 - t * 20))
 
 		local spine = Instance.new("Part")
 		spine.Name = "BoneSpine" .. i
@@ -192,12 +205,12 @@ local function buildDemonicSide(handle: BasePart, accessory: Accessory, side: nu
 		spine.CFrame = handle.CFrame * localCFrame
 		weldPart(spine, handle, accessory)
 
-		-- +length/2, not -length/2 -- spine's local Z axis (after its X-axis
-		-- pitch above, a modest -15..-35 degree tilt) still points mostly
-		-- toward Handle's own +Z, i.e. outward/backward (see this file's
-		-- own +Z convention comment). Since the spine's CFrame origin sits
-		-- at its geometric center, +length/2 reaches the outward tip;
-		-- -length/2 would land back toward the body.
+		-- UNVERIFIED sign -- the spine's own local Z after its compound
+		-- rotation above isn't one we could read off the axis-marker
+		-- screenshots (those only showed Handle's own axes, not a
+		-- rotated child's). If the ember ball sits embedded near the
+		-- spine's base instead of glowing at its visible tip, flip this
+		-- to -length/2.
 		local glow = Instance.new("Part")
 		glow.Name = "BoneSpineGlow" .. i
 		glow.Shape = Enum.PartType.Ball
@@ -225,8 +238,8 @@ local function buildFaeSide(handle: BasePart, accessory: Accessory, side: number
 		{ y = 0.1, spreadDeg = 45, length = 0.8 },
 	}
 	for i, lobe in ipairs(lobes) do
-		local localCFrame = CFrame.new(side * 0.25, lobe.y, 0.1)
-			* CFrame.Angles(0, 0, math.rad(side * lobe.spreadDeg))
+		local localCFrame = CFrame.new(0.1 * DEPTH_SIGN, lobe.y, side * 0.25)
+			* CFrame.Angles(math.rad(side * lobe.spreadDeg), 0, 0)
 
 		local panel = Instance.new("Part")
 		panel.Name = "Lobe" .. i
