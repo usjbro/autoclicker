@@ -20,19 +20,6 @@ local FLIGHT_UPWARD_SPEED = 20
 -- accepted as negligible per-entry cost).
 local lastFlightAt: { [number]: number } = {}
 
--- Any of the 5 Wings styles independently grants flight (see
--- docs/superpowers/specs/2026-08-20-wings-styles-design.md) -- explicit
--- per-field checks, not a loop indexing Session by a dynamic key, matching
--- this codebase's established --!strict fixed-record-type reasoning (see
--- GameLogic.CalculateMazeBonusRate's own comment on exactly this pattern).
-local function hasAnyWings(session: GameLogic.Session): boolean
-	return session.ownedWings
-		or session.ownedWingsVoidtech
-		or session.ownedWingsDragon
-		or session.ownedWingsDemonic
-		or session.ownedWingsFae
-end
-
 -- Attempts to activate a flight burst for player, given their (already
 -- session-locked, via SessionStore.With in GameService.server.lua) session.
 -- Returns whether it actually activated -- false if they don't own Wings or
@@ -41,7 +28,7 @@ end
 -- unaffordable purchase). Client never reports a duration/velocity/position
 -- -- it only asks to fly; everything about the effect is computed here.
 function FlightSystem.TryActivate(player: Player, session: GameLogic.Session): boolean
-	if not hasAnyWings(session) then return false end
+	if not GameLogic.HasAnyWings(session) then return false end
 
 	local now = os.clock()
 	local last = lastFlightAt[player.UserId]

@@ -112,6 +112,22 @@ function GameLogic.CanRebirth(session: Session): boolean
 	return session.score >= GameConstants.REBIRTH.Threshold
 end
 
+-- Whether a session owns any of the 5 Wings styles -- any one independently
+-- grants flight (see docs/superpowers/specs/2026-08-20-wings-styles-design.md).
+-- Required by both FlightSystem.lua (server, authoritative gate on actually
+-- activating flight) and the client (UI gate on whether to even fire
+-- ActivateFlightEvent) so the two can't drift, the same reasoning
+-- CalculateMazeBonusRate's own comment gives for being shared. Explicit
+-- per-field checks, not a loop indexing Session by a dynamic key, matching
+-- this codebase's established --!strict fixed-record-type reasoning.
+function GameLogic.HasAnyWings(session: Session): boolean
+	return session.ownedWings
+		or session.ownedWingsVoidtech
+		or session.ownedWingsDragon
+		or session.ownedWingsDemonic
+		or session.ownedWingsFae
+end
+
 -- Flat cost lookup: prices never scale with how many the player already owns.
 function GameLogic.GetUpgradeCost(upgradeId: string): number
 	local upgrade = GameConstants.UPGRADES[upgradeId]
