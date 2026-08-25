@@ -56,6 +56,7 @@ jobs:
           lune run test/mazeGeometry.test.luau
           lune run test/gameHandlers.test.luau
           lune run test/neonScript.test.luau
+          lune run test/wingsGeometry.test.luau
 
       - name: Verify Rojo project builds
         run: rojo build default.project.json -o /tmp/ci-build.rbxlx

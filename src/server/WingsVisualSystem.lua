@@ -2,6 +2,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameLogic = require(Shared:WaitForChild("GameLogic"))
+local WingsGeometry = require(Shared:WaitForChild("WingsGeometry"))
 local Players = game:GetService("Players")
 local SessionStoreType = require(script.Parent:WaitForChild("SessionStore"))
 type SessionStoreModule = SessionStoreType.SessionStoreModule
@@ -104,10 +105,14 @@ local DEPTH_SIGN = 1
 -- Z-axis rotation to X with an unchanged sign quietly inverted the
 -- result -- outer, high-spreadDeg feathers ended up drooping toward the
 -- ground instead of fanning outward. Directly specifying the intended
--- blend sidesteps that whole class of rotation-sign mistake.
+-- blend sidesteps that whole class of rotation-sign mistake. The blend
+-- itself (WingsGeometry.FanDirection) lives in src/shared/ specifically
+-- so it's headlessly testable under Lune (test/wingsGeometry.test.luau)
+-- -- this exact class of math has already shipped one real sign bug, and
+-- a test is what actually prevents the next one, not another comment.
 local function fanCFrame(handle: BasePart, side: number, spreadDeg: number, rootOffset: Vector3): CFrame
-	local radians = math.rad(spreadDeg)
-	local lengthDirection = (Vector3.new(0, 1, 0) * math.cos(radians) + Vector3.new(0, 0, side) * math.sin(radians)).Unit
+	local x, y, z = WingsGeometry.FanDirection(spreadDeg, side)
+	local lengthDirection = Vector3.new(x, y, z)
 	-- CFrame.lookAt points local -Z at the target, so passing
 	-- -lengthDirection makes local +Z (every part in this file's own
 	-- "length" axis, via Size.Z) align with lengthDirection instead.
@@ -126,7 +131,12 @@ local function buildFeatheredSide(handle: BasePart, accessory: Accessory, side: 
 		local t = (i - 1) / (featherCount - 1)
 		local spreadDeg = 20 + t * 50
 		local length = 2.2 - t * 0.6
-		local rootOffset = Vector3.new(0.15 * DEPTH_SIGN, 0.3, side * 0.3)
+		-- Depth grows with t (outer feathers sit slightly further back) --
+		-- restores some of the per-feather graduated variation the old,
+		-- ambiguous-sign pitch rotation used to give, via a translation
+		-- along DEPTH_SIGN's already-confirmed axis instead of another
+		-- rotation whose sign would need re-verifying.
+		local rootOffset = Vector3.new((0.15 + t * 0.15) * DEPTH_SIGN, 0.3, side * 0.3)
 		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
 		local feather = Instance.new("WedgePart")
@@ -191,7 +201,9 @@ local function buildDragonSide(handle: BasePart, accessory: Accessory, side: num
 		local t = (i - 1) / (spineCount - 1)
 		local spreadDeg = 10 + t * 65
 		local length = 1.8 + t * 1.4
-		local rootOffset = Vector3.new(0.15 * DEPTH_SIGN, 0.25, side * 0.3)
+		-- See buildFeatheredSide's identical comment -- depth grows with
+		-- t to restore per-spine variation without a rotation sign guess.
+		local rootOffset = Vector3.new((0.15 + t * 0.15) * DEPTH_SIGN, 0.25, side * 0.3)
 		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
 		local spine = Instance.new("WedgePart")
@@ -215,7 +227,9 @@ local function buildDemonicSide(handle: BasePart, accessory: Accessory, side: nu
 		local t = (i - 1) / (spineCount - 1)
 		local spreadDeg = 15 + t * 60
 		local length = 2.0 + t * 1.0
-		local rootOffset = Vector3.new(0.15 * DEPTH_SIGN, 0.3, side * 0.3)
+		-- See buildFeatheredSide's identical comment -- depth grows with
+		-- t to restore per-spine variation without a rotation sign guess.
+		local rootOffset = Vector3.new((0.15 + t * 0.15) * DEPTH_SIGN, 0.3, side * 0.3)
 		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
 		local spine = Instance.new("Part")
