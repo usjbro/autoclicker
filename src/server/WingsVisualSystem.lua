@@ -93,6 +93,30 @@ end
 -- this single constant.
 local DEPTH_SIGN = 1
 
+-- Every style's wing pieces fan from "pointing straight up" (spreadDeg=0,
+-- folded close against the back) toward "pointing straight lateral"
+-- (spreadDeg=90, fully spread) as spreadDeg increases, mirrored by side.
+-- Built as an explicit direction blend + CFrame.lookAt, not a chained
+-- CFrame.Angles(spread,0,0) rotation -- an earlier version of this file
+-- used the latter and, verified by hand (matrix derivation, not guessed):
+-- swapping which axis a rotation applies to is an orientation-reversing
+-- transformation (S*Rz(t)*S = Rx(-t), not Rx(t)), so porting the old
+-- Z-axis rotation to X with an unchanged sign quietly inverted the
+-- result -- outer, high-spreadDeg feathers ended up drooping toward the
+-- ground instead of fanning outward. Directly specifying the intended
+-- blend sidesteps that whole class of rotation-sign mistake.
+local function fanCFrame(handle: BasePart, side: number, spreadDeg: number, rootOffset: Vector3): CFrame
+	local radians = math.rad(spreadDeg)
+	local lengthDirection = (Vector3.new(0, 1, 0) * math.cos(radians) + Vector3.new(0, 0, side) * math.sin(radians)).Unit
+	-- CFrame.lookAt points local -Z at the target, so passing
+	-- -lengthDirection makes local +Z (every part in this file's own
+	-- "length" axis, via Size.Z) align with lengthDirection instead.
+	-- lengthDirection only ever has Y/Z components by construction, so
+	-- local +X (depth) is always a safe, never-parallel up-hint.
+	local orientation = CFrame.lookAt(Vector3.new(), -lengthDirection, Vector3.new(1, 0, 0))
+	return handle.CFrame * CFrame.new(rootOffset) * orientation
+end
+
 -- Classic Feathered: 5 layered feathers per side, fanning outward/upward
 -- from a shoulder point, tapering shorter toward the outer edge. White/
 -- cream with a thin gold Neon trim line per feather.
@@ -102,16 +126,15 @@ local function buildFeatheredSide(handle: BasePart, accessory: Accessory, side: 
 		local t = (i - 1) / (featherCount - 1)
 		local spreadDeg = 20 + t * 50
 		local length = 2.2 - t * 0.6
-		local localCFrame = CFrame.new(0.15 * DEPTH_SIGN, 0.3, side * 0.3)
-			* CFrame.Angles(math.rad(side * spreadDeg), 0, 0)
-			* CFrame.Angles(0, 0, math.rad(-15 - t * 10))
+		local rootOffset = Vector3.new(0.15 * DEPTH_SIGN, 0.3, side * 0.3)
+		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
 		local feather = Instance.new("WedgePart")
 		feather.Name = "Feather" .. i
 		feather.Size = Vector3.new(0.15, 0.5, length)
 		feather.Color = Color3.fromHex("f4f0e6")
 		feather.Material = Enum.Material.SmoothPlastic
-		feather.CFrame = handle.CFrame * localCFrame
+		feather.CFrame = baseCFrame
 		weldPart(feather, handle, accessory)
 
 		local trim = Instance.new("Part")
@@ -132,8 +155,8 @@ local function buildVoidtechSide(handle: BasePart, accessory: Accessory, side: n
 		local t = (i - 1) / (panelCount - 1)
 		local spreadDeg = 15 + t * 45
 		local length = 2.5 - t * 0.8
-		local localCFrame = CFrame.new(0.15 * DEPTH_SIGN, 0.35 - t * 0.3, side * 0.3)
-			* CFrame.Angles(math.rad(side * spreadDeg), 0, 0)
+		local rootOffset = Vector3.new(0.15 * DEPTH_SIGN, 0.35 - t * 0.3, side * 0.3)
+		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
 		local panelHeight = 0.9
 		local panel = Instance.new("Part")
@@ -141,7 +164,7 @@ local function buildVoidtechSide(handle: BasePart, accessory: Accessory, side: n
 		panel.Size = Vector3.new(0.2, panelHeight, length)
 		panel.Color = Color3.fromHex("1e1e2f")
 		panel.Material = Enum.Material.SmoothPlastic
-		panel.CFrame = handle.CFrame * localCFrame
+		panel.CFrame = baseCFrame
 		weldPart(panel, handle, accessory)
 
 		-- Sits flush on the panel's top edge -- derived from panelHeight
@@ -168,16 +191,15 @@ local function buildDragonSide(handle: BasePart, accessory: Accessory, side: num
 		local t = (i - 1) / (spineCount - 1)
 		local spreadDeg = 10 + t * 65
 		local length = 1.8 + t * 1.4
-		local localCFrame = CFrame.new(0.15 * DEPTH_SIGN, 0.25, side * 0.3)
-			* CFrame.Angles(math.rad(side * spreadDeg), 0, 0)
-			* CFrame.Angles(0, 0, math.rad(-10 - t * 25))
+		local rootOffset = Vector3.new(0.15 * DEPTH_SIGN, 0.25, side * 0.3)
+		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
 		local spine = Instance.new("WedgePart")
 		spine.Name = "MembraneSpine" .. i
 		spine.Size = Vector3.new(0.12, 0.35, length)
 		spine.Color = Color3.fromHex("3a0a0a")
 		spine.Material = Enum.Material.SmoothPlastic
-		spine.CFrame = handle.CFrame * localCFrame
+		spine.CFrame = baseCFrame
 		weldPart(spine, handle, accessory)
 	end
 end
@@ -193,24 +215,21 @@ local function buildDemonicSide(handle: BasePart, accessory: Accessory, side: nu
 		local t = (i - 1) / (spineCount - 1)
 		local spreadDeg = 15 + t * 60
 		local length = 2.0 + t * 1.0
-		local localCFrame = CFrame.new(0.15 * DEPTH_SIGN, 0.3, side * 0.3)
-			* CFrame.Angles(math.rad(side * spreadDeg), 0, 0)
-			* CFrame.Angles(0, 0, math.rad(-15 - t * 20))
+		local rootOffset = Vector3.new(0.15 * DEPTH_SIGN, 0.3, side * 0.3)
+		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
 		local spine = Instance.new("Part")
 		spine.Name = "BoneSpine" .. i
 		spine.Size = Vector3.new(0.1, 0.1, length)
 		spine.Color = Color3.fromHex("0d0d0d")
 		spine.Material = Enum.Material.SmoothPlastic
-		spine.CFrame = handle.CFrame * localCFrame
+		spine.CFrame = baseCFrame
 		weldPart(spine, handle, accessory)
 
-		-- UNVERIFIED sign -- the spine's own local Z after its compound
-		-- rotation above isn't one we could read off the axis-marker
-		-- screenshots (those only showed Handle's own axes, not a
-		-- rotated child's). If the ember ball sits embedded near the
-		-- spine's base instead of glowing at its visible tip, flip this
-		-- to -length/2.
+		-- +length/2 is now unambiguous: fanCFrame builds the spine's own
+		-- local +Z to point exactly along its outward/upward fan
+		-- direction (see fanCFrame's own comment), so translating along
+		-- it reaches the visible tip, not a guessed sign.
 		local glow = Instance.new("Part")
 		glow.Name = "BoneSpineGlow" .. i
 		glow.Shape = Enum.PartType.Ball
@@ -238,8 +257,8 @@ local function buildFaeSide(handle: BasePart, accessory: Accessory, side: number
 		{ y = 0.1, spreadDeg = 45, length = 0.8 },
 	}
 	for i, lobe in ipairs(lobes) do
-		local localCFrame = CFrame.new(0.1 * DEPTH_SIGN, lobe.y, side * 0.25)
-			* CFrame.Angles(math.rad(side * lobe.spreadDeg), 0, 0)
+		local rootOffset = Vector3.new(0.1 * DEPTH_SIGN, lobe.y, side * 0.25)
+		local baseCFrame = fanCFrame(handle, side, lobe.spreadDeg, rootOffset)
 
 		local panel = Instance.new("Part")
 		panel.Name = "Lobe" .. i
@@ -247,7 +266,7 @@ local function buildFaeSide(handle: BasePart, accessory: Accessory, side: number
 		panel.Color = Color3.fromHex("a29bfe")
 		panel.Material = Enum.Material.Neon
 		panel.Transparency = 0.55
-		panel.CFrame = handle.CFrame * localCFrame
+		panel.CFrame = baseCFrame
 		weldPart(panel, handle, accessory)
 	end
 end
