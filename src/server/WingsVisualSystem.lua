@@ -117,7 +117,20 @@ local function fanCFrame(handle: BasePart, side: number, spreadDeg: number, root
 	-- -lengthDirection makes local +Z (every part in this file's own
 	-- "length" axis, via Size.Z) align with lengthDirection instead.
 	-- lengthDirection only ever has Y/Z components by construction, so
-	-- local +X (depth) is always a safe, never-parallel up-hint.
+	-- local +X (depth) is always a safe, never-parallel up-hint -- BUT
+	-- verified by hand (the vector triple-product identity, cross-checked
+	-- numerically): because it's *exactly* perpendicular to lengthDirection
+	-- (not just non-parallel), CFrame.lookAt's resulting local +Y ends up
+	-- pinned to exactly this up-hint (0,0,pinned to world depth) regardless
+	-- of spreadDeg/side, while local +X is what actually sweeps through the
+	-- fan arc -- the reverse of what the naming suggests. Every part built
+	-- from this CFrame therefore puts its BROAD dimension on Size.X (the
+	-- sweeping axis, so it stays visible face-on as the wing fans) and its
+	-- THIN dimension on Size.Y (the pinned-to-depth axis, where staying
+	-- thin doesn't matter) -- swapped from the more "obvious" X=thickness/
+	-- Y=height assignment, which would instead present each piece edge-on
+	-- at high spreadDeg (the same "reads as a thin line" defect this
+	-- codebase already fixed once for FlameTrail/LightTrail).
 	local orientation = CFrame.lookAt(Vector3.new(), -lengthDirection, Vector3.new(1, 0, 0))
 	return handle.CFrame * CFrame.new(rootOffset) * orientation
 end
@@ -141,7 +154,9 @@ local function buildFeatheredSide(handle: BasePart, accessory: Accessory, side: 
 
 		local feather = Instance.new("WedgePart")
 		feather.Name = "Feather" .. i
-		feather.Size = Vector3.new(0.15, 0.5, length)
+		-- Broad dimension (0.5) on X (sweeps with the fan), thin (0.15) on
+		-- Y (pinned to depth) -- see fanCFrame's own comment on why.
+		feather.Size = Vector3.new(0.5, 0.15, length)
 		feather.Color = Color3.fromHex("f4f0e6")
 		feather.Material = Enum.Material.SmoothPlastic
 		feather.CFrame = baseCFrame
@@ -168,25 +183,28 @@ local function buildVoidtechSide(handle: BasePart, accessory: Accessory, side: n
 		local rootOffset = Vector3.new(0.15 * DEPTH_SIGN, 0.35 - t * 0.3, side * 0.3)
 		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
+		-- Broad dimension (panelHeight) on X (sweeps with the fan), thin
+		-- (0.2) on Y (pinned to depth) -- see fanCFrame's own comment on
+		-- why.
 		local panelHeight = 0.9
 		local panel = Instance.new("Part")
 		panel.Name = "Panel" .. i
-		panel.Size = Vector3.new(0.2, panelHeight, length)
+		panel.Size = Vector3.new(panelHeight, 0.2, length)
 		panel.Color = Color3.fromHex("1e1e2f")
 		panel.Material = Enum.Material.SmoothPlastic
 		panel.CFrame = baseCFrame
 		weldPart(panel, handle, accessory)
 
-		-- Sits flush on the panel's top edge -- derived from panelHeight
-		-- (not a bare magic number) so it stays flush if panelHeight is
-		-- ever retuned, same reasoning as buildDemonicSide's glow offset
-		-- below being derived from its spine's length.
+		-- Sits flush on the panel's broad (X) edge -- derived from
+		-- panelHeight (not a bare magic number) so it stays flush if
+		-- panelHeight is ever retuned, same reasoning as buildDemonicSide's
+		-- glow offset below being derived from its spine's length.
 		local seam = Instance.new("Part")
 		seam.Name = "PanelSeam" .. i
 		seam.Size = Vector3.new(0.06, 0.06, length)
 		seam.Color = Color3.fromHex("6c5ce7")
 		seam.Material = Enum.Material.Neon
-		seam.CFrame = panel.CFrame * CFrame.new(0, panelHeight / 2, 0)
+		seam.CFrame = panel.CFrame * CFrame.new(panelHeight / 2, 0, 0)
 		weldPart(seam, handle, accessory)
 	end
 end
@@ -206,9 +224,11 @@ local function buildDragonSide(handle: BasePart, accessory: Accessory, side: num
 		local rootOffset = Vector3.new((0.15 + t * 0.15) * DEPTH_SIGN, 0.25, side * 0.3)
 		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
+		-- Broad dimension (0.35) on X (sweeps with the fan), thin (0.12)
+		-- on Y (pinned to depth) -- see fanCFrame's own comment on why.
 		local spine = Instance.new("WedgePart")
 		spine.Name = "MembraneSpine" .. i
-		spine.Size = Vector3.new(0.12, 0.35, length)
+		spine.Size = Vector3.new(0.35, 0.12, length)
 		spine.Color = Color3.fromHex("3a0a0a")
 		spine.Material = Enum.Material.SmoothPlastic
 		spine.CFrame = baseCFrame
@@ -232,6 +252,8 @@ local function buildDemonicSide(handle: BasePart, accessory: Accessory, side: nu
 		local rootOffset = Vector3.new((0.15 + t * 0.15) * DEPTH_SIGN, 0.3, side * 0.3)
 		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
+		-- Square cross-section (0.1, 0.1) -- no broad/thin swap needed here,
+		-- unlike the other styles' fanCFrame-oriented pieces.
 		local spine = Instance.new("Part")
 		spine.Name = "BoneSpine" .. i
 		spine.Size = Vector3.new(0.1, 0.1, length)
@@ -274,9 +296,11 @@ local function buildFaeSide(handle: BasePart, accessory: Accessory, side: number
 		local rootOffset = Vector3.new(0.1 * DEPTH_SIGN, lobe.y, side * 0.25)
 		local baseCFrame = fanCFrame(handle, side, lobe.spreadDeg, rootOffset)
 
+		-- Broad dimension (0.8) on X (sweeps with the fan), thin (0.03)
+		-- on Y (pinned to depth) -- see fanCFrame's own comment on why.
 		local panel = Instance.new("Part")
 		panel.Name = "Lobe" .. i
-		panel.Size = Vector3.new(0.03, 0.8, lobe.length)
+		panel.Size = Vector3.new(0.8, 0.03, lobe.length)
 		panel.Color = Color3.fromHex("a29bfe")
 		panel.Material = Enum.Material.Neon
 		panel.Transparency = 0.55
