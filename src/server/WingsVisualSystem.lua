@@ -155,7 +155,13 @@ local function buildFeatheredSide(handle: BasePart, accessory: Accessory, side: 
 		local feather = Instance.new("WedgePart")
 		feather.Name = "Feather" .. i
 		-- Broad dimension (0.5) on X (sweeps with the fan), thin (0.15) on
-		-- Y (pinned to depth) -- see fanCFrame's own comment on why.
+		-- Y (pinned to depth) -- see fanCFrame's own comment on why. Note
+		-- WedgePart's taper (full Size.Y at one Z end, down to 0 at the
+		-- other) always runs along Y regardless of which value is bigger --
+		-- that's an engine-fixed property of WedgePart, not something this
+		-- swap changes, and it predates this swap (Y was already the
+		-- depth-pinned axis before it). The swap only fixes the separate,
+		-- already-confirmed silhouette-width issue (X facing the camera).
 		feather.Size = Vector3.new(0.5, 0.15, length)
 		feather.Color = Color3.fromHex("f4f0e6")
 		feather.Material = Enum.Material.SmoothPlastic
@@ -225,7 +231,8 @@ local function buildDragonSide(handle: BasePart, accessory: Accessory, side: num
 		local baseCFrame = fanCFrame(handle, side, spreadDeg, rootOffset)
 
 		-- Broad dimension (0.35) on X (sweeps with the fan), thin (0.12)
-		-- on Y (pinned to depth) -- see fanCFrame's own comment on why.
+		-- on Y (pinned to depth) -- see fanCFrame's own comment on why, and
+		-- buildFeatheredSide's comment on WedgePart's Y-locked taper.
 		local spine = Instance.new("WedgePart")
 		spine.Name = "MembraneSpine" .. i
 		spine.Size = Vector3.new(0.35, 0.12, length)
